@@ -23,18 +23,27 @@ app.add_static_files('/assets', "assets")
 @ui.page('/')
 def index():
 
-    ui.colors(primary='#28323C', secondary="#B4C3AA", positive='#53B689', accent='#111B1E')
+    ui.colors(
+        primary='#3F2B5B',      # deep muted violet (navbar and accents)
+        secondary='#A166A0',    # soft magenta (highlight touches)
+        accent='#00F0FF',       # electric cyan (hover/active UI pops)
+        dark='#141414',         # base dark chrome
+        dark_page='#0F0F0F',    # background for pages
+        positive='#53B689',     # soft green (affirmative / status)
+        negative='#FF5555',     # saturated error red
+        info='#31ccec',         # light neon blue
+        warning='#FFC857',      # synth yellow
+    )
+
+    ui.dark_mode(True)
     ui.add_head_html("<style>" + open(Path(__file__).parent / "assets" / "css" / "global-css.css").read() + "</style>")
 
+
     with header.frame(title=appName, version=appVersion):
-
-        with ui.header().classes(replace='row items-center').style('background-color:white; border-bottom: 1px solid #D4D6D8;') as header_below:
+        with ui.header().classes(replace='row items-center').style('background-color:#3F2B5B; border-bottom: 1px solid #00F0FF;') as header_below:
             with ui.column().classes('w-full items-center'):
-
                 with ui.tabs().props("active-color=blue-grey-14 active-bg-color=white") as tabs1:
-                    
                     with ui.row():
-
                         with ui.tab("tab_1", label="").style('color: black; font-family: "Rational Display", sans-serif;').props("no-caps") as tab_three:
                             ui.icon("o_home").classes('text-3xl')
                             ui.label("Home")
@@ -67,7 +76,7 @@ def index():
         tab_panel.tailwind("pt-16 pl-16 pr-16")
 
         footer.frame(title=appName, version=appVersion)
-
+        
 def handle_shutdown():
     print('Shutdown has been initiated!')
 

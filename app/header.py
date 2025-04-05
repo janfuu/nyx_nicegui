@@ -4,7 +4,7 @@ from nicegui import ui
 @contextmanager
 def frame(title: str, version : str):
     """Custom page frame to share the same styling and behavior across all pages"""
-    with ui.header().classes(replace='row items-center h-16') as header:
+    with ui.header().classes(replace='row items-center h-24') as header:
         ui.label("").tailwind("pr-6")
         ui.image('assets/images/logo.png').classes("w-24")
         ui.label("").tailwind("px-0.5")

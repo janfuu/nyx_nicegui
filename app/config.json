@@ -1,5 +1,5 @@
 {
-    "appName" : "App-Template",
+    "appName" : "Nyx",
     "appVersion" : "Preview",
-    "appPort" : 3000
+    "appPort" : 8080
 }
