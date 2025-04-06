@@ -1,14 +1,20 @@
 from nicegui import ui, app
 
+
 def content() -> None:
-    with ui.card().classes('w-full'):
-        ui.markdown("**Memories**")
-        
-        with ui.column().classes('gap-1 w-full'):
-            ui.button('CHECK TABLE')
-            ui.button('INIT MEMORY')
-            ui.button('DEBUG MEMORIES')
-            ui.button('FORCE MEMORY')
+        with ui.card().classes('w-full'):
+
+                ui.markdown("**Expansion**")
+
+                with ui.expansion(value=True).classes('w-full fro-accordion') as general_data:
+                    
+                    with general_data.add_slot('header'):
+
+                            with ui.row().classes('w-full'):
+                                    ui.icon("calendar_today").classes('text-2xl')
+                                    ui.label("OVERVIEW").tailwind("pt-1")
+
+                    ui.label("Your Content 1")
 
         ui.separator()
         with ui.card().classes('w-full'):
