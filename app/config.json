@@ -1,5 +1,30 @@
 {
-    "appName" : "Nyx",
-    "appVersion" : "Preview",
-    "appPort" : 8080
+    "app": {
+        "title": "Nyx",
+        "host": "localhost",
+        "port": 8080,
+        "debug": true,
+        "version": "1.0.0"
+    },
+    "database": {
+        "path": "data/nyx_memory.db"
+    },
+    "llm": {
+        "model": "gpt-4",
+        "temperature": 0.8,
+        "max_tokens": 512,
+        "max_new_tokens": 512,
+        "truncation_length": 2048,
+        "api_base": "http://localhost:5000/v1",
+        "api_key": "",
+        "max_messages": 20,
+        "timeout": 60,
+        "use_streaming": false
+    },
+    "image_generation": {
+        "model": "dall-e-3",
+        "size": "1024x1024",
+        "quality": "standard",
+        "stability_api_key": ""
+    }
 }
