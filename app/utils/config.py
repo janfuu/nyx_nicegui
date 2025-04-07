@@ -20,6 +20,10 @@ class Config:
             
         # Load API keys from environment variables if available
         self.config["llm"]["api_key"] = os.environ.get("OPENAI_API_KEY", self.config["llm"].get("api_key", ""))
+        # Add OpenRouter API key from environment variable
+        self.config["llm"]["openrouter_api_key"] = os.environ.get("OPENROUTER_API_KEY", self.config["llm"].get("openrouter_api_key", ""))
+        # Add Runware API key from environment variable
+        self.config["image_generation"]["runware_api_key"] = os.environ.get("RUNWARE_API_KEY", self.config["image_generation"].get("runware_api_key", ""))
         self.config["image_generation"]["stability_api_key"] = os.environ.get("STABILITY_API_KEY", self.config["image_generation"].get("stability_api_key", ""))
     
     def get(self, section, key=None, default=None):

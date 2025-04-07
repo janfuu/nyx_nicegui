@@ -1,31 +1,73 @@
 import re
+from app.models.prompt_models import PromptManager, PromptType
 
 class ResponseParser:
     @staticmethod
-    def parse_response(text):
-        """Parse response text to extract special tags"""
-        result = {
-            "main_text": text,
-            "thoughts": [],
-            "images": [],
-            "mood": None
-        }
+    def parse_response(response_text):
+        """
+        Parse the LLM response to extract special tags
+        """
+        # Get the parsing instructions from the database
+        prompt_manager = PromptManager()
+        parser_data = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
         
-        # Extract thoughts
-        result["thoughts"] = re.findall(r"<thought>(.*?)</thought>", text, re.DOTALL)
+        if not parser_data:
+            # Default parsing if not in database
+            return ResponseParser._default_parse(response_text)
         
-        # Extract image prompts
-        result["images"] = re.findall(r"<image>(.*?)</image>", text, re.DOTALL)
+        # Extract thought tags
+        thoughts = []
+        thought_pattern = re.compile(r'<thought>(.*?)<\/thought>', re.DOTALL)
+        for match in thought_pattern.finditer(response_text):
+            thoughts.append(match.group(1).strip())
         
-        # Extract mood updates
-        mood_match = re.search(r"<mood>(.*?)</mood>", text, re.DOTALL)
+        # Remove thought tags from the response
+        main_text = thought_pattern.sub('', response_text)
+        
+        # Extract image tags
+        images = []
+        image_pattern = re.compile(r'<image>(.*?)<\/image>', re.DOTALL)
+        for match in image_pattern.finditer(main_text):
+            images.append(match.group(1).strip())
+        
+        # Remove image tags from the response
+        main_text = image_pattern.sub('', main_text)
+        
+        # Extract mood tag
+        mood = None
+        mood_pattern = re.compile(r'<mood>(.*?)<\/mood>', re.DOTALL)
+        mood_match = mood_pattern.search(main_text)
         if mood_match:
-            result["mood"] = mood_match.group(1).strip()
+            mood = mood_match.group(1).strip()
         
-        # Clean up the main text by removing the tags
-        cleaned_text = re.sub(r"<thought>.*?</thought>", '', text, flags=re.DOTALL)
-        cleaned_text = re.sub(r"<image>.*?</image>", '[Image]', cleaned_text, flags=re.DOTALL)
-        cleaned_text = re.sub(r"<mood>.*?</mood>", '', cleaned_text, flags=re.DOTALL)
+        # Remove mood tag from the response
+        main_text = mood_pattern.sub('', main_text)
         
-        result["main_text"] = cleaned_text.strip()
-        return result
+        # Clean up extra whitespace and line breaks
+        main_text = re.sub(r'\n{3,}', '\n\n', main_text.strip())
+        
+        return {
+            "main_text": main_text,
+            "thoughts": thoughts,
+            "images": images,
+            "mood": mood
+        }
+    
+    @staticmethod
+    def _default_parse(response_text):
+        """Default parsing method if no parser prompt is defined"""
+        # Default implementation
+        thoughts = []
+        images = []
+        mood = None
+        main_text = response_text
+        
+        # Basic cleanup
+        main_text = main_text.strip()
+        
+        return {
+            "main_text": main_text,
+            "thoughts": thoughts,
+            "images": images,
+            "mood": mood
+        }

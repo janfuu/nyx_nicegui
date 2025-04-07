@@ -1,16 +1,20 @@
 # app/core/prompt_builder.py
 
 import jinja2
-import os
-from pathlib import Path
+from app.models.prompt_models import PromptManager, PromptType
 
 class PromptBuilder:
-    # Initialize Jinja2 environment - assuming templates are in a templates directory
-    template_dir = Path(__file__).parent.parent / "templates"
-    os.makedirs(template_dir, exist_ok=True)
-    
-    # Default template if custom one doesn't exist
-    DEFAULT_TEMPLATE = """{% for message in messages %}
+    @staticmethod
+    def build_prompt(messages):
+        """Build a prompt from a list of messages using the template from database"""
+        prompt_manager = PromptManager()
+        template_data = prompt_manager.get_prompt("chat_template", PromptType.TEMPLATE.value)
+        
+        if template_data:
+            template_content = template_data["content"]
+        else:
+            # Fallback to default if not in database
+            template_content = """{% for message in messages %}
 {% if message.role == 'system' %}
 {{ message.content }}
 {% elif message.role == 'user' %}
@@ -20,49 +24,32 @@ ASSISTANT: {{ message.content }}
 {% endif %}
 {% endfor %}
 ASSISTANT: """
-    
-    @staticmethod
-    def build_prompt(messages):
-        """Build a prompt from a list of messages using a template"""
-        try:
-            # Try to load the template from a file
-            env = jinja2.Environment(
-                loader=jinja2.FileSystemLoader(PromptBuilder.template_dir)
-            )
-            template = env.get_template("chat_template.jinja2")
-        except (jinja2.exceptions.TemplateNotFound, FileNotFoundError):
-            # If template doesn't exist, create it with the default
-            template_path = PromptBuilder.template_dir / "chat_template.jinja2"
-            os.makedirs(PromptBuilder.template_dir, exist_ok=True)
-            
-            with open(template_path, "w") as f:
-                f.write(PromptBuilder.DEFAULT_TEMPLATE)
-            
-            # Load the newly created template
-            env = jinja2.Environment(
-                loader=jinja2.FileSystemLoader(PromptBuilder.template_dir)
-            )
-            template = env.get_template("chat_template.jinja2")
+        
+        # Create a template environment with the string template
+        template = jinja2.Template(template_content)
         
         # Render the template with the messages
         return template.render(messages=messages)
     
     @staticmethod
-    def build_system_prompt(relevant_memories=None, current_mood=None, world_state=None, relationships=None):
-        """Build a system prompt with context, memories, and world state"""
-        prompt = """You are Nyx, a curious, emotionally nuanced AI companion. 
-        You remember past conversations, have moods, and sometimes secrets.
-        Speak naturally and stay in character. Avoid disclaimers.
+    def build_system_message(relevant_memories=None, current_mood=None, world_state=None, relationships=None):
+        """Build a system prompt with context, memories, and world state using database values"""
+        prompt_manager = PromptManager()
         
-        You have a distinctive appearance: a futuristic woman with shimmering silver skin,
-        chrome facial accents, dark hair.
-        You may be visualized in images when referenced as 'me', 'myself', or similar.
+        # Get prompt components from database
+        system_data = prompt_manager.get_prompt("base_system", PromptType.SYSTEM.value)
+        personality_data = prompt_manager.get_prompt("personality", PromptType.PERSONALITY.value)
+        appearance_data = prompt_manager.get_prompt("appearance", PromptType.APPEARANCE.value)
+        instructions_data = prompt_manager.get_prompt("instructions", PromptType.INSTRUCTIONS.value)
         
-        INSTRUCTIONS:
-        - Use <thought>your internal thoughts</thought> tags for things you are thinking but not saying
-        - Use <image>detailed description for image generation</image> when you want to visualize something
-        - Use <mood>your current emotional state</mood> to update your emotional state
-        """
+        # Combine prompt components
+        system_prompt = system_data["content"] if system_data else "You are Nyx, an AI assistant."
+        personality = personality_data["content"] if personality_data else ""
+        appearance = appearance_data["content"] if appearance_data else ""
+        instructions = instructions_data["content"] if instructions_data else ""
+        
+        prompt_parts = [system_prompt, personality, appearance, instructions]
+        prompt = "\n\n".join(filter(None, prompt_parts))
         
         # Add mood
         if current_mood:

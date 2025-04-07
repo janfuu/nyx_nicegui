@@ -5,6 +5,7 @@ from app.core.memory_system import MemorySystem
 from app.core.response_parser import ResponseParser
 from app.core.image_generator import ImageGenerator
 from app.core.world_manager import WorldManager
+from app.utils.config import Config
 
 class ChatPipeline:
     def __init__(self):
@@ -12,6 +13,7 @@ class ChatPipeline:
         self.llm = LLMIntegration()
         self.world_manager = WorldManager()
         self.image_generator = ImageGenerator()
+        self.config = Config()
     
     def process_message(self, user_message):
         """Process a user message and generate a response"""
@@ -29,10 +31,16 @@ class ChatPipeline:
         )["content"]
         
         # Step 3: Get LLM response
+        # Can override provider and model for main conversation
+        main_provider = self.config.get("llm", "main_provider", None)  # Use default if not specified
+        main_model = self.config.get("llm", "main_model", None)        # Use default if not specified
+        
         llm_response = self.llm.generate_response(
             system_prompt=system_prompt,
             user_message=user_message,
-            conversation_history=conversation_history
+            conversation_history=conversation_history,
+            provider=main_provider,
+            model=main_model
         )
         
         # Step 4: Parse response

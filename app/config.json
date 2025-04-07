@@ -10,21 +10,30 @@
         "path": "data/nyx_memory.db"
     },
     "llm": {
-        "model": "gpt-4",
+        "provider": "openrouter",
+        "model": "mistralai/mistral-nemo",
         "temperature": 0.8,
         "max_tokens": 512,
         "max_new_tokens": 512,
         "truncation_length": 2048,
-        "api_base": "http://localhost:5000/v1",
+        "local_api_base": "http://localhost:5000/v1",
+        "openrouter_api_base": "https://openrouter.ai/api/v1",
+        
         "api_key": "",
+        "openrouter_api_key": "",
+        "http_referer": "http://localhost:8080",
         "max_messages": 20,
         "timeout": 60,
         "use_streaming": false
     },
     "image_generation": {
-        "model": "dall-e-3",
-        "size": "1024x1024",
-        "quality": "standard",
-        "stability_api_key": ""
+        "model": "civitai:101055@128078",
+        "height": 512,
+        "width": 512,
+        "number_results": 1,
+        "stability_api_key": "",
+        "runware_api_base": "https://api.runware.ai/v1",
+        "runware_api_key": "",
+        "use_prompt_enhancement": true
     }
 }

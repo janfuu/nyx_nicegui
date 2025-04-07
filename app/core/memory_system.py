@@ -1,4 +1,5 @@
 from app.models.database import Database
+from app.models.prompt_models import PromptManager
 import json
 import time
 import sqlite3
@@ -181,3 +182,15 @@ class MemorySystem:
         except Exception as e:
             print(f"Error retrieving relevant memories: {e}")
             return []
+    
+    def initialize_tables(self):
+        """Initialize database tables"""
+        cursor = self.conn.cursor()
+        # Create memory tables...
+        
+        # Initialize prompts
+        prompt_manager = PromptManager()
+        
+        # Commit all changes
+        self.conn.commit()
+        return True
