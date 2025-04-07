@@ -66,13 +66,22 @@ class PromptManager:
             {
                 "name": "response_parser",
                 "type": PromptType.PARSER.value,
-                "content": """Parse the response to extract special tag content:
+                "content": """You are a precise parser that extracts structured information from AI responses.
+Extract any thoughts, image descriptions, and mood updates from the text, following these guidelines:
 
-1. <thought>...</thought>: Extract internal thoughts
-2. <image>...</image>: Extract image generation prompts
-3. <mood>...</mood>: Extract mood updates
+1. Thoughts: Look for text that represents internal thoughts of the AI, often in <thought>...</thought> tags or similar markers
+2. Images: Look for descriptions meant for image generation, often in <image>...</image> tags or similar markers
+3. Mood: Look for mood/emotional state updates, often in <mood>...</mood> tags or similar markers
 
-For each tag, extract the content and remove the tags from the main response.""",
+Return a JSON object with the following structure:
+{
+  "main_text": "The cleaned response with all tags removed",
+  "thoughts": ["thought1", "thought2", ...],
+  "images": ["image description1", "image description2", ...],
+  "mood": "detected mood or null if not found"
+}
+
+Be thorough and don't miss any information. Include all text not belonging to special tags in main_text.""",
                 "description": "Instructions for parsing response tags"
             },
             {

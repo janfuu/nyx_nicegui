@@ -24,7 +24,10 @@
         "http_referer": "http://localhost:8080",
         "max_messages": 20,
         "timeout": 60,
-        "use_streaming": false
+        "use_streaming": false,
+        
+        "parser_provider": "openrouter",
+        "parser_model": "anthropic/claude-3-haiku"
     },
     "image_generation": {
         "model": "civitai:101055@128078",

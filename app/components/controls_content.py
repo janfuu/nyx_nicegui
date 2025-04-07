@@ -4,6 +4,8 @@ from app.core.memory_system import MemorySystem
 from app.core.prompt_builder import PromptBuilder
 from functools import partial
 import json
+import os
+from pathlib import Path
 
 def save_prompt(name, type_value, text_area):
     prompt_manager = PromptManager()
@@ -173,6 +175,55 @@ def initialize_memory_system():
     else:
         ui.notify("Error initializing memory tables", color="negative")
 
+def view_logs():
+    """Display logs in a dialog window"""
+    logs_dir = Path('logs')
+    log_files = list(logs_dir.glob('*.log'))
+    
+    if not log_files:
+        ui.notify("No log files found", color="warning")
+        return
+    
+    # Sort by modification time (newest first)
+    log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    
+    logs_dialog = ui.dialog()
+    with logs_dialog:
+        with ui.card().classes('w-full'):
+            ui.markdown("### Application Logs")
+            
+            # Create a dropdown to select log file
+            log_select = ui.select(
+                [str(file.name) for file in log_files],
+                value=str(log_files[0].name),
+                label="Select Log File"
+            )
+            
+            # Display log contents in a scroll area
+            log_content_area = ui.scroll_area().classes('h-96 w-full font-mono')
+            
+            async def load_log_content(e):
+                selected_log = logs_dir / log_select.value
+                try:
+                    with open(selected_log, 'r') as f:
+                        content = f.read()
+                    
+                    with log_content_area:
+                        log_content_area.clear()
+                        ui.markdown(f"```\n{content}\n```")
+                except Exception as ex:
+                    ui.notify(f"Error loading log: {str(ex)}", color="negative")
+            
+            # Initial load
+            load_log_content(None)
+            
+            # Update when selection changes
+            log_select.on_value_change(load_log_content)
+            
+            ui.button('Close', on_click=logs_dialog.close).classes('self-end')
+    
+    logs_dialog.open()
+
 def content() -> None:
     prompt_manager = PromptManager()
     memory_system = MemorySystem()
@@ -184,6 +235,16 @@ def content() -> None:
             ui.button('Check Database Tables', on_click=check_memory_tables).props('outline')
             ui.button('Initialize Memory System', on_click=initialize_memory_system).props('color="primary"')
             ui.button('View Memory Data', on_click=display_memory_data).props('color="secondary"')
+
+    ui.separator()
+    
+    # Logging and Diagnostics Section
+    with ui.card().classes('w-full'):
+        ui.markdown("**Logging and Diagnostics**")
+        
+        with ui.column().classes('gap-1 w-full'):
+            ui.button('View Logs', on_click=view_logs).props('color="info"')
+            ui.button('Clear Logs', on_click=lambda: ui.notify("Not implemented yet")).props('outline')
 
     ui.separator()
     

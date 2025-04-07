@@ -6,6 +6,7 @@ import time
 from enum import Enum
 from app.utils.config import Config
 from app.core.prompt_builder import PromptBuilder
+from app.utils.logger import Logger
 
 class LLMProvider(Enum):
     LOCAL = "local"
@@ -15,6 +16,7 @@ class LLMProvider(Enum):
 class LLMIntegration:
     def __init__(self):
         self.config = Config()
+        self.logger = Logger()
         
         # --- Default Configuration ---
         self.default_provider = LLMProvider(self.config.get("llm", "provider", "local"))
@@ -107,19 +109,50 @@ class LLMIntegration:
         if conversation_history is None:
             conversation_history = []
             
-        provider = provider or self.default_provider
+        provider = LLMProvider(provider) if provider else self.default_provider
         model = model or self.default_model
+        
+        # Log input parameters
+        self.logger.debug(f"Generating response with provider={provider.value}, model={model}")
+        
+        # Check if API key is available for the selected provider
+        if provider == LLMProvider.OPENROUTER:
+            api_key = self.config.get("llm", "openrouter_api_key", "")
+            if not api_key:
+                error_msg = "No OpenRouter API key found. Please set OPENROUTER_API_KEY environment variable or in config.json"
+                self.logger.error(error_msg)
+                return f"I'm having trouble connecting to my thoughts right now. {error_msg}"
+        elif provider == LLMProvider.RUNWARE:
+            api_key = self.config.get("llm", "runware_api_key", "")
+            if not api_key:
+                error_msg = "No Runware API key found. Please set RUNWARE_API_KEY environment variable or in config.json"
+                self.logger.error(error_msg)
+                return f"I'm having trouble connecting to my thoughts right now. {error_msg}"
 
         try:
+            response = ""
             if provider == LLMProvider.OPENROUTER:
-                return self._generate_openrouter_response(
+                response = self._generate_openrouter_response(
                     system_prompt, user_message, conversation_history, model
                 )
             else:
-                return self._generate_local_response(
+                response = self._generate_local_response(
                     system_prompt, user_message, conversation_history, model
                 )
+                
+            # Log the complete conversation
+            self.logger.log_conversation(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                conversation_history=conversation_history,
+                llm_response=response,
+                provider=provider.value,
+                model=model
+            )
+            
+            return response
         except Exception as e:
+            self.logger.error(f"Error in generate_response: {str(e)}")
             return self._handle_error(e)
 
     def _generate_openrouter_response(self, system_prompt, user_message, conversation_history, model):
@@ -135,13 +168,28 @@ class LLMIntegration:
         api_base = self._get_api_base(LLMProvider.OPENROUTER)
         headers = self._get_headers(LLMProvider.OPENROUTER)
         endpoint = f"{api_base}/chat/completions"
-
-        if self.use_streaming:
-            return self._handle_streaming_response(endpoint, {**payload, "stream": True}, True, headers)
         
-        response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
+        # Log API request details
+        self.logger.debug(f"OpenRouter request to {endpoint}")
+        self.logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+
+        start_time = time.time()
+        
+        if self.use_streaming:
+            response = self._handle_streaming_response(endpoint, {**payload, "stream": True}, True, headers)
+        else:
+            api_response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
+            api_response.raise_for_status()
+            
+            # Log raw API response
+            self.logger.debug(f"OpenRouter response: {api_response.text}")
+            
+            response = api_response.json()["choices"][0]["message"]["content"].strip()
+        
+        end_time = time.time()
+        self.logger.info(f"OpenRouter request completed in {end_time - start_time:.2f} seconds")
+        
+        return response
 
     def _generate_local_response(self, system_prompt, user_message, conversation_history, model):
         context = [{"role": "system", "content": system_prompt}]
@@ -157,13 +205,28 @@ class LLMIntegration:
         api_base = self._get_api_base(LLMProvider.LOCAL)
         headers = self._get_headers(LLMProvider.LOCAL)
         endpoint = f"{api_base}/completions"
+        
+        # Log the complete prompt that will be sent
+        self.logger.debug(f"Local LLM request to {endpoint}")
+        self.logger.debug(f"Full prompt:\n{prompt}")
 
+        start_time = time.time()
+        
         if self.use_streaming:
-            return self._handle_streaming_response(endpoint, {**payload, "stream": True}, False, headers)
-
-        response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-        response.raise_for_status()
-        return response.json()["choices"][0]["text"].strip()
+            response = self._handle_streaming_response(endpoint, {**payload, "stream": True}, False, headers)
+        else:
+            api_response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
+            api_response.raise_for_status()
+            
+            # Log raw API response
+            self.logger.debug(f"Local LLM response: {api_response.text}")
+            
+            response = api_response.json()["choices"][0]["text"].strip()
+        
+        end_time = time.time()
+        self.logger.info(f"Local LLM request completed in {end_time - start_time:.2f} seconds")
+        
+        return response
 
     def _handle_streaming_response(self, endpoint, payload, is_openrouter, headers):
         reply = ""
@@ -190,14 +253,16 @@ class LLMIntegration:
 
     def _handle_error(self, e):
         error_msg = str(e)
-        print(f"Error calling LLM API: {error_msg}")
+        self.logger.error(f"LLM API error: {error_msg}")
         
         detailed_error = error_msg
         if hasattr(e, 'response') and e.response:
             try:
                 error_content = e.response.json()
                 detailed_error = json.dumps(error_content, indent=2)
+                self.logger.error(f"Detailed API error: {detailed_error}")
             except:
                 detailed_error = e.response.text if e.response.text else error_msg
+                self.logger.error(f"API error text: {detailed_error}")
         
         return f"I'm having trouble connecting to my thoughts right now. {detailed_error}"
