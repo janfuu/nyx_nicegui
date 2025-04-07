@@ -3,6 +3,7 @@ from app.models.prompt_models import PromptManager, PromptType
 from app.core.memory_system import MemorySystem
 from app.core.prompt_builder import PromptBuilder
 from functools import partial
+import json
 
 def save_prompt(name, type_value, text_area):
     prompt_manager = PromptManager()
@@ -46,18 +47,143 @@ def preview_system_prompt():
     
     preview_dialog.open()
 
+def display_memory_data():
+    """Display memory data in a dialog window"""
+    memory_system = MemorySystem()
+    memory_dialog = ui.dialog()
+    
+    with memory_dialog:
+        with ui.card().classes('w-full'):
+            ui.markdown("### Memory System Data")
+            
+            with ui.tabs().classes('w-full') as tabs:
+                conversations_tab = ui.tab('Conversations')
+                thoughts_tab = ui.tab('Thoughts')
+                emotions_tab = ui.tab('Emotions')
+                
+            with ui.tab_panels(tabs, value=conversations_tab).classes('w-full'):
+                # Conversations Panel
+                with ui.tab_panel(conversations_tab):
+                    recent_conversations = memory_system.get_recent_conversation(10)
+                    
+                    if recent_conversations:
+                        with ui.scroll_area().classes('h-96 w-full'):
+                            for message in recent_conversations:
+                                with ui.card().classes('q-mb-sm'):
+                                    role_color = "primary" if message["role"] == "assistant" else "secondary"
+                                    ui.label(f"Role: {message['role']}").classes(f'text-bold text-{role_color}')
+                                    ui.separator()
+                                    ui.markdown(message["content"])
+                    else:
+                        ui.label("No conversation data found").classes('text-italic')
+                
+                # Thoughts Panel
+                with ui.tab_panel(thoughts_tab):
+                    recent_thoughts = memory_system.get_recent_thoughts(10)
+                    
+                    if recent_thoughts:
+                        with ui.scroll_area().classes('h-96 w-full'):
+                            for thought in recent_thoughts:
+                                with ui.card().classes('q-mb-sm'):
+                                    ui.label(f"Importance: {thought['importance']}").classes('text-bold')
+                                    ui.label(f"Time: {thought['timestamp']}").classes('text-caption')
+                                    ui.separator()
+                                    ui.markdown(thought["content"])
+                    else:
+                        ui.label("No thoughts data found").classes('text-italic')
+                
+                # Emotions Panel
+                with ui.tab_panel(emotions_tab):
+                    recent_emotions = memory_system.get_recent_emotions(10)
+                    
+                    if recent_emotions:
+                        with ui.scroll_area().classes('h-96 w-full'):
+                            for emotion in recent_emotions:
+                                with ui.card().classes('q-mb-sm'):
+                                    ui.label(f"Mood: {emotion['mood']}").classes('text-bold')
+                                    ui.label(f"Intensity: {emotion['intensity']}").classes('text-caption')
+                                    ui.label(f"Time: {emotion['timestamp']}").classes('text-caption')
+                    else:
+                        ui.label("No emotions data found").classes('text-italic')
+            
+            ui.button('Close', on_click=memory_dialog.close).classes('self-end')
+    
+    memory_dialog.open()
+
+def check_memory_tables():
+    """Check if memory tables exist and show their structure"""
+    memory_system = MemorySystem()
+    tables_dialog = ui.dialog()
+    
+    with tables_dialog:
+        with ui.card().classes('w-full'):
+            ui.markdown("### Database Tables")
+            
+            # Get DB info - modify the memory_system to add a method that returns this info
+            # For now, we'll just show a placeholder
+            with ui.scroll_area().classes('h-96 w-full'):
+                ui.markdown("""```sql
+-- Conversations Table
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    embedding BLOB,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Thoughts Table
+CREATE TABLE IF NOT EXISTS thoughts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    importance INTEGER DEFAULT 5,
+    embedding BLOB,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Emotions Table
+CREATE TABLE IF NOT EXISTS emotions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mood TEXT NOT NULL,
+    intensity REAL DEFAULT 1.0,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Relationships Table
+CREATE TABLE IF NOT EXISTS relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    parameter TEXT NOT NULL,
+    value TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```""")
+            
+            ui.button('Close', on_click=tables_dialog.close).classes('self-end')
+    
+    tables_dialog.open()
+
+def initialize_memory_system():
+    """Initialize the memory system tables and show result"""
+    memory_system = MemorySystem()
+    result = memory_system.initialize_tables()
+    
+    if result:
+        ui.notify("Memory tables initialized successfully", color="positive")
+    else:
+        ui.notify("Error initializing memory tables", color="negative")
+
 def content() -> None:
     prompt_manager = PromptManager()
     memory_system = MemorySystem()
     
     with ui.card().classes('w-full'):
-        ui.markdown("**Memories**")
+        ui.markdown("**Memory System**")
         
         with ui.column().classes('gap-1 w-full'):
-            ui.button('CHECK TABLE', on_click=lambda: ui.notify('Checking memory table...'))
-            ui.button('INIT MEMORY', on_click=lambda: memory_system.initialize_tables())
-            ui.button('DEBUG MEMORIES', on_click=lambda: ui.notify(str(memory_system.get_recent_memories(5))))
-            ui.button('FORCE MEMORY')
+            ui.button('Check Database Tables', on_click=check_memory_tables).props('outline')
+            ui.button('Initialize Memory System', on_click=initialize_memory_system).props('color="primary"')
+            ui.button('View Memory Data', on_click=display_memory_data).props('color="secondary"')
 
     ui.separator()
     

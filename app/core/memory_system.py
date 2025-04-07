@@ -70,7 +70,9 @@ class MemorySystem:
         )
         
         result = cursor.fetchone()
-        return result[0] if result else "neutral"
+        if result:
+            return result[0]
+        return "neutral"  # Default mood
     
     def update_relationship(self, entity, parameter, value):
         """Update a relationship parameter for an entity"""
@@ -183,14 +185,84 @@ class MemorySystem:
             print(f"Error retrieving relevant memories: {e}")
             return []
     
+    def get_recent_thoughts(self, limit=10):
+        """Get recent thoughts"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT content, importance, timestamp FROM thoughts ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        )
+        
+        results = cursor.fetchall()
+        thoughts = [{"content": content, "importance": importance, "timestamp": timestamp} 
+                   for content, importance, timestamp in results]
+        return thoughts
+
+    def get_recent_emotions(self, limit=10):
+        """Get recent emotions"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT mood, intensity, timestamp FROM emotions ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        )
+        
+        results = cursor.fetchall()
+        emotions = [{"mood": mood, "intensity": intensity, "timestamp": timestamp} 
+                   for mood, intensity, timestamp in results]
+        return emotions
+
     def initialize_tables(self):
         """Initialize database tables"""
-        cursor = self.conn.cursor()
-        # Create memory tables...
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        # Create the tables if they don't exist
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            embedding BLOB,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS thoughts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            importance INTEGER DEFAULT 5,
+            embedding BLOB,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS emotions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mood TEXT NOT NULL,
+            intensity REAL DEFAULT 1.0,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS relationships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            value TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
         
         # Initialize prompts
         prompt_manager = PromptManager()
         
         # Commit all changes
-        self.conn.commit()
+        conn.commit()
         return True
