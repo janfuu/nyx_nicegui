@@ -70,7 +70,25 @@ class Database:
         )
         ''')
         
+        # Create prompts table with version support
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS prompts (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            description TEXT,
+            version INTEGER DEFAULT 1,
+            is_default BOOLEAN DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(name, type)
+        )
+        ''')
+        
         self.conn.commit()
+        
+        # Update schema to add any missing columns to existing tables
+        self.update_schema()
     
     def get_connection(self):
         """Get the database connection"""
@@ -83,3 +101,28 @@ class Database:
         if self.conn:
             self.conn.close()
             self.conn = None
+    
+    def update_schema(self):
+        """Update database schema to latest version"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if version column exists in prompts table
+        cursor.execute("PRAGMA table_info(prompts)")
+        columns = cursor.fetchall()
+        column_names = [col[1] for col in columns]
+        
+        # Add missing columns if they don't exist
+        if 'version' not in column_names:
+            cursor.execute("ALTER TABLE prompts ADD COLUMN version INTEGER DEFAULT 1")
+            print("Added 'version' column to prompts table")
+        
+        if 'is_default' not in column_names:
+            cursor.execute("ALTER TABLE prompts ADD COLUMN is_default BOOLEAN DEFAULT 0")
+            print("Added 'is_default' column to prompts table")
+        
+        if 'updated_at' not in column_names:
+            cursor.execute("ALTER TABLE prompts ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            print("Added 'updated_at' column to prompts table")
+        
+        conn.commit()

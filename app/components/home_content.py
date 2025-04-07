@@ -1,3 +1,4 @@
+import time
 from nicegui import ui, app
 from ..services.chat_pipeline import ChatPipeline
 
@@ -23,6 +24,18 @@ def content() -> None:
                 # Chat display area
                 chat_box = ui.column().classes('h-[600px] overflow-y-auto bg-[#1a1a1a] p-6 rounded w-full')
                 
+                # Function to display image details
+                def show_image_details(image_data):
+                    dialog = ui.dialog()
+                    with dialog:
+                        with ui.card().classes('w-full max-w-3xl'):
+                            ui.label('Image Details').classes('text-xl font-bold mb-2')
+                            ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
+                            ui.label('Original Prompt:').classes('font-bold')
+                            ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
+                            ui.button('Close', on_click=dialog.close).classes('self-end')
+                    dialog.open()
+                
                 # Message input and send button
                 with ui.row().classes('gap-4 mt-auto w-full'):
                     msg_input = ui.input(placeholder='Type a message...').classes('flex-1 bg-[#1f1f1f] text-white')
@@ -40,17 +53,30 @@ def content() -> None:
                         msg_input.value = ""
                         
                         # Process message with chat pipeline
-                        response = chat_pipeline.process_message(user_message)
+                        with ui.spinner("Processing...").classes('absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50'):
+                            response = chat_pipeline.process_message(user_message)
                         
                         # Display assistant response
                         with chat_box:
-                            ui.label(f"Assistant: {response['text']}").classes('self-start bg-gray-700 p-2 rounded-lg mb-2 max-w-3/4')
+                            # First show the text response
+                            ui.label(f"Nyx: {response['text']}").classes('self-start bg-gray-700 p-2 rounded-lg mb-2 max-w-3/4')
                             
                             # Display any generated images
-                            for image in response.get("images", []):
-                                ui.image(image["url"]).classes('max-w-xs rounded-lg mb-2')
+                            if response.get("images") and len(response["images"]) > 0:
+                                with ui.row().classes('flex-wrap gap-2 mb-2'):
+                                    for idx, image_data in enumerate(response["images"]):
+                                        with ui.card().classes('w-64 p-2 bg-gray-800'):
+                                            # Display the image
+                                            img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                            img.on('click', lambda d=image_data: show_image_details(d))
+                                            
+                                            # Image caption with preview option
+                                            short_desc = image_data["description"][:50] + ("..." if len(image_data["description"]) > 50 else "")
+                                            with ui.row().classes('items-center justify-between w-full'):
+                                                ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[80%]')
+                                                ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d)).props('flat dense').classes('text-xs p-1')
                         
-                        # Update mood display
+                        # Update mood display if provided
                         if response.get("mood"):
                             mood_display.value = response["mood"]
                             mood_label.text = "current mood"

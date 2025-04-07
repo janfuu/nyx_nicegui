@@ -27,10 +27,10 @@
         "use_streaming": false,
         
         "parser_provider": "openrouter",
-        "parser_model": "anthropic/claude-3-haiku"
+        "parser_model": "mistralai/mistral-nemo-instruct"
     },
     "image_generation": {
-        "model": "civitai:101055@128078",
+        "model": "civitai:133005@782002",
         "height": 512,
         "width": 512,
         "number_results": 1,

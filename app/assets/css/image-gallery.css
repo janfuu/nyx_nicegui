@@ -1,0 +1,41 @@
+/* Add to app/assets/css/app.css or create a new stylesheet */
+.image-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.image-card {
+    position: relative;
+    width: 200px;
+    background: rgba(30, 30, 30, 0.8);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s;
+}
+
+.image-card:hover {
+    transform: scale(1.02);
+}
+
+.image-caption {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    color: #d1d1d1;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.image-button {
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}

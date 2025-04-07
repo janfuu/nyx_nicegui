@@ -40,13 +40,42 @@ ASSISTANT: """
         system_data = prompt_manager.get_prompt("base_system", PromptType.SYSTEM.value)
         personality_data = prompt_manager.get_prompt("personality", PromptType.PERSONALITY.value)
         appearance_data = prompt_manager.get_prompt("appearance", PromptType.APPEARANCE.value)
+        
+        # Current version of the instructions
+        instructions_version = 2  # Increment this when you update instructions
+        
+        # Updated instructions with better tag guidance
+        instructions_text = """
+INSTRUCTIONS:
+- Use <thought>your internal thoughts</thought> for things you are thinking but not saying
+- Use <image>detailed description for image generation</image> when you want to visualize something
+- Use <mood>your current emotional state</mood> to update your emotional state
+
+For images:
+- Use ONE <image> tag per image you want to generate
+- Be detailed and specific in your image descriptions
+- You can use multiple <image> tags if you want several different images
+- Describe the image clearly, including colors, lighting, mood, and composition
+"""
+        
+        # Get instructions from DB
         instructions_data = prompt_manager.get_prompt("instructions", PromptType.INSTRUCTIONS.value)
+        
+        # Check if we need to update based on version
+        db_version = instructions_data.get("version", 0) if instructions_data else 0
+        
+        if not instructions_data or db_version < instructions_version:
+            # Update with new version and text
+            prompt_manager.update_prompt_with_version("instructions", PromptType.INSTRUCTIONS.value, 
+                                                   instructions_text, instructions_version)
+            instructions = instructions_text
+        else:
+            instructions = instructions_data["content"]
         
         # Combine prompt components
         system_prompt = system_data["content"] if system_data else "You are Nyx, an AI assistant."
         personality = personality_data["content"] if personality_data else ""
         appearance = appearance_data["content"] if appearance_data else ""
-        instructions = instructions_data["content"] if instructions_data else ""
         
         prompt_parts = [system_prompt, personality, appearance, instructions]
         prompt = "\n\n".join(filter(None, prompt_parts))

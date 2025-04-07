@@ -7,6 +7,8 @@ from app.core.image_generator import ImageGenerator
 from app.core.world_manager import WorldManager
 from app.utils.config import Config
 from app.utils.logger import Logger
+import time
+import json
 
 class ChatPipeline:
     def __init__(self):
@@ -59,11 +61,19 @@ class ChatPipeline:
         self.logger.debug("Step 4: Parsing response for special tags")
         parsed_response = ResponseParser.parse_response(llm_response)
         
-        # Log what was extracted
+        # Log what was extracted in detail
+        self.logger.debug(f"Parsed response: {json.dumps(parsed_response, indent=2)}")
+        
         if parsed_response.get("thoughts"):
             self.logger.info(f"Extracted {len(parsed_response['thoughts'])} thoughts")
+            for i, thought in enumerate(parsed_response['thoughts']):
+                self.logger.debug(f"Thought {i+1}: {thought[:50]}...")
+        
         if parsed_response.get("images"):
             self.logger.info(f"Extracted {len(parsed_response['images'])} image requests")
+            for i, img in enumerate(parsed_response['images']):
+                self.logger.debug(f"Image {i+1}: {img[:50]}...")
+        
         if parsed_response.get("mood"):
             self.logger.info(f"Mood update: {parsed_response['mood']}")
         
@@ -85,22 +95,30 @@ class ChatPipeline:
             self.memory_system.update_mood(parsed_response["mood"])
             self.logger.debug(f"Updated mood to: {parsed_response['mood']}")
         
-        # Process image generation
-        image_urls = []
-        for image_prompt in parsed_response.get("images", []):
+        # Process image generation with descriptions
+        image_results = []
+        for i, image_prompt in enumerate(parsed_response.get("images", [])):
             self.logger.info(f"Generating image for: {image_prompt[:50]}...")
-            image_url = self.image_generator.generate(image_prompt)
-            if image_url:
-                image_urls.append(image_url)
-                self.logger.info(f"Generated image: {image_url}")
-            else:
-                self.logger.warning(f"Failed to generate image for: {image_prompt[:50]}...")
+            try:
+                image_url = self.image_generator.generate(image_prompt)
+                if image_url:
+                    # Store both the URL and the original description
+                    image_results.append({
+                        "url": image_url,
+                        "description": image_prompt,
+                        "id": f"img_{int(time.time())}_{i}"  # Unique ID for reference
+                    })
+                    self.logger.info(f"Generated image: {image_url}")
+                else:
+                    self.logger.warning(f"Failed to generate image for: {image_prompt[:50]}...")
+            except Exception as e:
+                self.logger.error(f"Error generating image: {str(e)}")
         
         # Return both the text response and any generated images
         self.logger.info("Message processing complete")
         return {
             "text": parsed_response["main_text"],
-            "images": image_urls,
+            "images": image_results,
             "thoughts": parsed_response.get("thoughts", []),
             "mood": parsed_response.get("mood")
         }
