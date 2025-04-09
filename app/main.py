@@ -14,6 +14,7 @@ from .components import data_content
 from .models.database import Database
 from .core.memory_system import MemorySystem
 from .core.world_manager import WorldManager
+from .services.chat_pipeline import ChatPipeline
 
 # Initialize database
 db = Database()
@@ -38,6 +39,18 @@ if current_state["location"] == "Default Location":
         "A small apartment with neon lighting and futuristic tech scattered around. The windows show a sprawling cityscape with flying vehicles.",
         "/assets/images/location.png"
     )
+
+chat_pipeline = ChatPipeline()
+
+@app.post('/api/process_message')
+async def process_message(request):
+    data = await request.json()
+    user_message = data.get('message', '')
+    
+    # Process the message
+    response = chat_pipeline.process_message(user_message)
+    
+    return response
 
 @ui.page('/')
 def index():

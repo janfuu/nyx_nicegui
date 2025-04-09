@@ -110,7 +110,14 @@ class ChatPipeline:
                     })
                     self.logger.info(f"Generated image: {image_url}")
                 else:
-                    self.logger.warning(f"Failed to generate image for: {image_prompt[:50]}...")
+                    # Image generation might be happening in the background, so create a placeholder
+                    self.logger.warning(f"Image generation queued or failed for: {image_prompt[:50]}...")
+                    image_results.append({
+                        "url": "/assets/images/generating.png",  # Create a placeholder image for "generating"
+                        "description": image_prompt,
+                        "id": f"img_{int(time.time())}_{i}",
+                        "pending": True
+                    })
             except Exception as e:
                 self.logger.error(f"Error generating image: {str(e)}")
         

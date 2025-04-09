@@ -27,7 +27,7 @@
         "use_streaming": false,
         
         "parser_provider": "openrouter",
-        "parser_model": "mistralai/mistral-nemo-instruct"
+        "parser_model": "mistralai/mistral-nemo"
     },
     "image_generation": {
         "model": "civitai:133005@782002",

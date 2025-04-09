@@ -1,6 +1,6 @@
-import time
-from nicegui import ui, app
+from nicegui import ui
 from ..services.chat_pipeline import ChatPipeline
+import time
 
 # Initialize the chat pipeline
 chat_pipeline = ChatPipeline()
@@ -21,8 +21,10 @@ def content() -> None:
         # Center Card
         with ui.card().classes('flex-2 w-[800px]'):
             with ui.column().classes('h-full w-full gap-4'):
-                # Chat display area
-                chat_box = ui.column().classes('h-[600px] overflow-y-auto bg-[#1a1a1a] p-6 rounded w-full')
+                # Chat display area - use a simple scrollable container
+                chat_container = ui.scroll_area().classes('h-[600px] w-full')
+                with chat_container:
+                    chat_box = ui.column().classes('p-6 bg-[#1a1a1a] rounded w-full')
                 
                 # Function to display image details
                 def show_image_details(image_data):
@@ -39,58 +41,77 @@ def content() -> None:
                 # Message input and send button
                 with ui.row().classes('gap-4 mt-auto w-full'):
                     msg_input = ui.input(placeholder='Type a message...').classes('flex-1 bg-[#1f1f1f] text-white')
+                    thinking_indicator = ui.spinner('Thinking...').classes('hidden')
                     
                     def send_message():
+                        """Handle the send button click or Enter key"""
                         user_message = msg_input.value
                         if not user_message.strip():
                             return
                         
-                        # Display user message
-                        with chat_box:
-                            ui.label(f"You: {user_message}").classes('self-end bg-blue-800 p-2 rounded-lg mb-2 max-w-3/4')
-                        
-                        # Clear input
+                        # Clear input immediately
+                        current_message = user_message
                         msg_input.value = ""
                         
-                        # Process message with chat pipeline
-                        with ui.spinner("Processing...").classes('absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50'):
-                            response = chat_pipeline.process_message(user_message)
-                        
-                        # Display assistant response
+                        # Display user message immediately
                         with chat_box:
-                            # First show the text response
-                            ui.label(f"Nyx: {response['text']}").classes('self-start bg-gray-700 p-2 rounded-lg mb-2 max-w-3/4')
+                            user_msg = ui.label(f"You: {current_message}").classes('self-end bg-blue-800 p-2 rounded-lg mb-2 max-w-3/4')
+                        
+                        # Ensure UI updates before continuing
+                        ui.update()
+                        
+                        # Show thinking indicator
+                        thinking_indicator.classes('inline-block')
+                        ui.update()  # Force UI update again to show the spinner
+                        
+                        # Process message with chat pipeline directly - synchronously
+                        try:
+                            response = chat_pipeline.process_message(current_message)
                             
-                            # Display any generated images
-                            if response.get("images") and len(response["images"]) > 0:
-                                with ui.row().classes('flex-wrap gap-2 mb-2'):
-                                    for idx, image_data in enumerate(response["images"]):
-                                        with ui.card().classes('w-64 p-2 bg-gray-800'):
-                                            # Display the image
-                                            img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                            img.on('click', lambda d=image_data: show_image_details(d))
-                                            
-                                            # Image caption with preview option
-                                            short_desc = image_data["description"][:50] + ("..." if len(image_data["description"]) > 50 else "")
-                                            with ui.row().classes('items-center justify-between w-full'):
-                                                ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[80%]')
-                                                ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d)).props('flat dense').classes('text-xs p-1')
-                        
-                        # Update mood display if provided
-                        if response.get("mood"):
-                            mood_display.value = response["mood"]
-                            mood_label.text = "current mood"
-                        
-                        # Auto-scroll to bottom
-                        ui.run_javascript('''
-                            var element = document.querySelector('.overflow-y-auto');
-                            if (element) {
-                                element.scrollTop = element.scrollHeight;
-                            }
-                        ''')
+                            # Display assistant response
+                            with chat_box:
+                                # Create a message container for text and related images
+                                with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
+                                    # First show the text response
+                                    ui.markdown(response['text']).classes('text-white')
+                                    
+                                    # Display any generated images right below the text
+                                    if response.get("images") and len(response["images"]) > 0:
+                                        ui.separator().classes('my-2')
+                                        ui.label("Generated images:").classes('text-xs text-blue-300 mb-1')
+                                        
+                                        with ui.row().classes('flex-wrap gap-2 w-full'):
+                                            for idx, image_data in enumerate(response["images"]):
+                                                # Create a container for each image and its controls
+                                                with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                    # Display the image
+                                                    img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                                    img.on('click', lambda d=image_data: show_image_details(d))
+                                                    
+                                                    # Image caption with preview option
+                                                    with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                        short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
+                                                        ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                        ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
+                                                            .props('flat dense round').classes('text-xs')
+                            
+                            # Update mood display if provided
+                            if response.get("mood"):
+                                mood_display.value = response["mood"]
+                                mood_label.text = "current mood"
+                                
+                        except Exception as e:
+                            # Handle errors
+                            with chat_box:
+                                ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
+                                
+                        finally:
+                            # Hide thinking indicator when done
+                            thinking_indicator.classes('hidden')
                     
                     # Connect send button to function
-                    ui.button('SEND', on_click=send_message).classes('bg-primary text-white px-8')
+                    send_button = ui.button('SEND', on_click=send_message)\
+                        .props('icon=send').classes('bg-primary text-white px-8')
                     
                     # Allow pressing Enter to send
                     def on_key_press(e):
