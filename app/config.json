@@ -30,13 +30,13 @@
         "parser_model": "mistralai/mistral-nemo"
     },
     "image_generation": {
-        "model": "civitai:133005@782002",
-        "height": 512,
-        "width": 512,
+        "model": "civitai:112902@351306",
+        "height": 1024,
+        "width": 1024,
         "number_results": 1,
         "stability_api_key": "",
         "runware_api_base": "https://api.runware.ai/v1",
         "runware_api_key": "",
-        "use_prompt_enhancement": true
+        "use_prompt_enhancement": false
     }
 }

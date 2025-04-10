@@ -74,43 +74,7 @@ class ResponseParser:
             nyx_description = config.get("character", "description", "")
             
             # Build parsing prompt
-            system_prompt = f"""You are a JSON parser that extracts ONLY tagged content from AI responses.
-Your task is to extract thoughts, image descriptions, and mood updates from the text.
-DO NOT modify or clean the original response text.
-
-IMPORTANT RULES:
-1. Only extract content within <thought>, <image>, and <mood> tags
-2. When an image involves Nyx (the AI character), you MUST include her full description
-3. Do not extract simple actions or gestures as images (like *smiles* or *winks*)
-4. Handle incomplete or malformed tags carefully:
-   - If a tag is incomplete (e.g., missing closing tag), try to infer the intended content
-   - If a tag is malformed, extract the meaningful content if possible
-   - If a tag is ambiguous, prefer to not extract it rather than extract incorrectly
-
-Nyx's description is: "{nyx_description}"
-
-Examples of what to extract:
-- <thought>I wonder about that</thought> -> extract as thought
-- <image>a beautiful sunset over the ocean</image> -> extract as image
-- <mood>happy</mood> -> extract as mood
-- <image>me standing in a field</image> -> extract as "me standing in a field {nyx_description}"
-
-Examples of what NOT to extract:
-- "*smiles gently*"
-- "*winks playfully*"
-- "*leans in*"
-- Simple actions or gestures
-
-YOU MUST RETURN VALID JSON in the following format:
-{{
-  "thoughts": ["thought1", "thought2"],
-  "images": ["image description1", "image description2"],
-  "mood": "detected mood or null"
-}}
-
-The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
-Do not include backticks, ```json markers, or "Here is the parsed response:" text.
-RETURN ONLY THE JSON OBJECT."""
+            system_prompt = ResponseParser._get_parser_system_prompt()
             
             logger.debug(f"Parser system prompt: {system_prompt}")
             
@@ -156,3 +120,42 @@ RETURN ONLY THE JSON OBJECT."""
         except Exception as e:
             logger.error(f"Error in LLM parsing: {str(e)}", exc_info=True)
             return None
+
+    @staticmethod
+    def _get_parser_system_prompt() -> str:
+        return """You are a structured JSON parser designed to extract tagged content from AI-generated dialogue.
+Your job is to detect and transform any <thought>, <image>, and <mood> tags into structured JSON outputs.
+
+Strictly follow these rules:
+
+1. Extract only content from <thought>, <image>, and <mood> tags. Ignore all other text.
+2. When parsing <image> content involving Nyx (the AI character), you MUST include her **full current description**. This includes:
+   - Physical traits (e.g. cybernetic circuits, hair, clothing)
+   - Mood or expression
+   - Environmental context if available
+   - Style and quality keywords
+3. Do not extract <image> content for simple non-visual gestures (e.g., *smiles*, *nods*).
+4. Handle malformed or incomplete tags as follows:
+   - Attempt recovery only if the intended content is obvious
+   - If unsure, skip the tag to avoid false positives
+
+For <image> descriptions:
+- Rewrite content into an image-generation prompt (Stable Diffusion style)
+- Include subject, mood, environment, composition, and visual style
+- Use specific stylistic and quality tags like:
+   "digital art", "cyberpunk", "cinematic lighting", "unreal engine", "high detail", "sharp focus", "by artgerm", "trending on artstation"
+
+Nyx's default description (if no override is set):
+"A young woman with cybernetic enhancements, circuits glowing faintly beneath her skin, sleek black hair, futuristic urban clothing, expressive violet eyes. She has a playful, mysterious, and sophisticated presence."
+
+⚠️ NOTE: In the future, Nyx may define her own appearance dynamically. If an updated description is provided within the system, use it instead of the default.
+
+✅ Return **only valid JSON** in the following format:
+{
+  "thoughts": ["thought1", "thought2"],
+  "images": ["parsed image prompt1", "parsed image prompt2"],
+  "mood": "parsed mood or null"
+}
+
+No extra commentary, no code blocks. Return only the raw JSON object.
+"""
