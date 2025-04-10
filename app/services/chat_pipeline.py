@@ -19,7 +19,7 @@ class ChatPipeline:
         self.config = Config()
         self.logger = Logger()
     
-    def process_message(self, user_message):
+    async def process_message(self, user_message):
         """Process a user message and generate a response"""
         self.logger.info(f"Processing message: {user_message[:50]}...")
         
@@ -49,7 +49,7 @@ class ChatPipeline:
         main_provider = self.config.get("llm", "main_provider", None)  # Use default if not specified
         main_model = self.config.get("llm", "main_model", None)        # Use default if not specified
         
-        llm_response = self.llm.generate_response(
+        llm_response = await self.llm.generate_response(
             system_prompt=system_prompt,
             user_message=user_message,
             conversation_history=conversation_history,
@@ -100,7 +100,7 @@ class ChatPipeline:
         for i, image_prompt in enumerate(parsed_response.get("images", [])):
             self.logger.info(f"Generating image for: {image_prompt[:50]}...")
             try:
-                image_url = self.image_generator.generate(image_prompt)
+                image_url = await self.image_generator.generate(image_prompt)
                 if image_url:
                     # Store both the URL and the original description
                     image_results.append({

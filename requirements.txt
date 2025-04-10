@@ -10,3 +10,4 @@ requests>=2.28.0
 numpy>=1.0.0
 scikit-learn>=0.0.0
 runware
+python-dotenv>=1.0.0

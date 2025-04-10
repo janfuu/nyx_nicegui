@@ -1,6 +1,7 @@
 from nicegui import ui
 from ..services.chat_pipeline import ChatPipeline
 import time
+import asyncio
 
 # Initialize the chat pipeline
 chat_pipeline = ChatPipeline()
@@ -64,50 +65,53 @@ def content() -> None:
                         thinking_indicator.classes('inline-block')
                         ui.update()  # Force UI update again to show the spinner
                         
-                        # Process message with chat pipeline directly - synchronously
-                        try:
-                            response = chat_pipeline.process_message(current_message)
-                            
-                            # Display assistant response
-                            with chat_box:
-                                # Create a message container for text and related images
-                                with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
-                                    # First show the text response
-                                    ui.markdown(response['text']).classes('text-white')
-                                    
-                                    # Display any generated images right below the text
-                                    if response.get("images") and len(response["images"]) > 0:
-                                        ui.separator().classes('my-2')
-                                        ui.label("Generated images:").classes('text-xs text-blue-300 mb-1')
+                        async def process_message():
+                            try:
+                                response = await chat_pipeline.process_message(current_message)
+                                
+                                # Display assistant response
+                                with chat_box:
+                                    # Create a message container for text and related images
+                                    with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
+                                        # First show the text response
+                                        ui.markdown(response['text']).classes('text-white')
                                         
-                                        with ui.row().classes('flex-wrap gap-2 w-full'):
-                                            for idx, image_data in enumerate(response["images"]):
-                                                # Create a container for each image and its controls
-                                                with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                                    # Display the image
-                                                    img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                                    img.on('click', lambda d=image_data: show_image_details(d))
-                                                    
-                                                    # Image caption with preview option
-                                                    with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                        short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
-                                                        ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                        ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
-                                                            .props('flat dense round').classes('text-xs')
-                            
-                            # Update mood display if provided
-                            if response.get("mood"):
-                                mood_display.value = response["mood"]
-                                mood_label.text = "current mood"
+                                        # Display any generated images right below the text
+                                        if response.get("images") and len(response["images"]) > 0:
+                                            ui.separator().classes('my-2')
+                                            ui.label("Generated images:").classes('text-xs text-blue-300 mb-1')
+                                            
+                                            with ui.row().classes('flex-wrap gap-2 w-full'):
+                                                for idx, image_data in enumerate(response["images"]):
+                                                    # Create a container for each image and its controls
+                                                    with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                        # Display the image
+                                                        img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                                        img.on('click', lambda d=image_data: show_image_details(d))
+                                                        
+                                                        # Image caption with preview option
+                                                        with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                            short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
+                                                            ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                            ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
+                                                                .props('flat dense round').classes('text-xs')
                                 
-                        except Exception as e:
-                            # Handle errors
-                            with chat_box:
-                                ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
-                                
-                        finally:
-                            # Hide thinking indicator when done
-                            thinking_indicator.classes('hidden')
+                                # Update mood display if provided
+                                if response.get("mood"):
+                                    mood_display.value = response["mood"]
+                                    mood_label.text = "current mood"
+                                    
+                            except Exception as e:
+                                # Handle errors
+                                with chat_box:
+                                    ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
+                                    
+                            finally:
+                                # Hide thinking indicator when done
+                                thinking_indicator.classes('hidden')
+                        
+                        # Start the async processing
+                        ui.timer(0.1, lambda: asyncio.create_task(process_message()), once=True)
                     
                     # Connect send button to function
                     send_button = ui.button('SEND', on_click=send_message)\

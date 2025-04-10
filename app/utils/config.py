@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 class Config:
     _instance = None
@@ -12,7 +13,11 @@ class Config:
         return cls._instance
     
     def _load_config(self):
-        """Load configuration from config.json"""
+        """Load configuration from config.json and .env"""
+        # Load environment variables from .env file
+        load_dotenv()
+        
+        # Load config.json
         config_path = Path(__file__).parent.parent / "config.json"
         
         with open(config_path, 'r') as file:
@@ -25,6 +30,9 @@ class Config:
         # Add Runware API key from environment variable
         self.config["image_generation"]["runware_api_key"] = os.environ.get("RUNWARE_API_KEY", self.config["image_generation"].get("runware_api_key", ""))
         self.config["image_generation"]["stability_api_key"] = os.environ.get("STABILITY_API_KEY", self.config["image_generation"].get("stability_api_key", ""))
+        
+        # Update HTTP Referer from environment variable if available
+        self.config["llm"]["http_referer"] = os.environ.get("HTTP_REFERER", self.config["llm"].get("http_referer", "http://localhost:8080"))
     
     def get(self, section, key=None, default=None):
         """Get a configuration value"""

@@ -94,7 +94,7 @@ class LLMIntegration:
             "content": system_prompt
         }
 
-    def generate_response(self, system_prompt, user_message, conversation_history=None, 
+    async def generate_response(self, system_prompt, user_message, conversation_history=None, 
                           provider=None, model=None):
         """
         Generate a response from the LLM
@@ -132,11 +132,11 @@ class LLMIntegration:
         try:
             response = ""
             if provider == LLMProvider.OPENROUTER:
-                response = self._generate_openrouter_response(
+                response = await self._generate_openrouter_response(
                     system_prompt, user_message, conversation_history, model
                 )
             else:
-                response = self._generate_local_response(
+                response = await self._generate_local_response(
                     system_prompt, user_message, conversation_history, model
                 )
                 
@@ -155,7 +155,7 @@ class LLMIntegration:
             self.logger.error(f"Error in generate_response: {str(e)}")
             return self._handle_error(e)
 
-    def _generate_openrouter_response(self, system_prompt, user_message, conversation_history, model):
+    async def _generate_openrouter_response(self, system_prompt, user_message, conversation_history, model):
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(conversation_history[-self.max_messages:])
         messages.append({"role": "user", "content": user_message})
@@ -176,22 +176,23 @@ class LLMIntegration:
         start_time = time.time()
         
         if self.use_streaming:
-            response = self._handle_streaming_response(endpoint, {**payload, "stream": True}, True, headers)
+            response = await self._handle_streaming_response(endpoint, {**payload, "stream": True}, True, headers)
         else:
-            api_response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-            api_response.raise_for_status()
-            
-            # Log raw API response
-            self.logger.debug(f"OpenRouter response: {api_response.text}")
-            
-            response = api_response.json()["choices"][0]["message"]["content"].strip()
+            async with httpx.AsyncClient() as client:
+                api_response = await client.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
+                api_response.raise_for_status()
+                
+                # Log raw API response
+                self.logger.debug(f"OpenRouter response: {api_response.text}")
+                
+                response = api_response.json()["choices"][0]["message"]["content"].strip()
         
         end_time = time.time()
         self.logger.info(f"OpenRouter request completed in {end_time - start_time:.2f} seconds")
         
         return response
 
-    def _generate_local_response(self, system_prompt, user_message, conversation_history, model):
+    async def _generate_local_response(self, system_prompt, user_message, conversation_history, model):
         context = [{"role": "system", "content": system_prompt}]
         context.extend(conversation_history[-self.max_messages:])
         context.append({"role": "user", "content": user_message})
@@ -213,42 +214,43 @@ class LLMIntegration:
         start_time = time.time()
         
         if self.use_streaming:
-            response = self._handle_streaming_response(endpoint, {**payload, "stream": True}, False, headers)
+            response = await self._handle_streaming_response(endpoint, {**payload, "stream": True}, False, headers)
         else:
-            api_response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-            api_response.raise_for_status()
-            
-            # Log raw API response
-            self.logger.debug(f"Local LLM response: {api_response.text}")
-            
-            response = api_response.json()["choices"][0]["text"].strip()
+            async with httpx.AsyncClient() as client:
+                api_response = await client.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
+                api_response.raise_for_status()
+                
+                # Log raw API response
+                self.logger.debug(f"Local LLM response: {api_response.text}")
+                
+                response = api_response.json()["choices"][0]["text"].strip()
         
         end_time = time.time()
         self.logger.info(f"Local LLM request completed in {end_time - start_time:.2f} seconds")
         
         return response
 
-    def _handle_streaming_response(self, endpoint, payload, is_openrouter, headers):
+    async def _handle_streaming_response(self, endpoint, payload, is_openrouter, headers):
         reply = ""
-        response = httpx.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-        response.raise_for_status()
-
-        for line in response.iter_lines():
-            if not line.strip():
-                continue
-            try:
-                if line.startswith(b"data: "):
-                    json_str = line[6:].decode("utf-8")
-                    if json_str == "[DONE]":
-                        break
-                    chunk = json.loads(json_str)
-                    if is_openrouter:
-                        content = chunk["choices"][0].get("delta", {}).get("content", "")
-                    else:
-                        content = chunk["choices"][0].get("text", "")
-                    reply += content
-            except Exception as e:
-                print(f"Error parsing stream chunk: {e}")
+        async with httpx.AsyncClient() as client:
+            async with client.stream('POST', endpoint, json=payload, headers=headers, timeout=self.timeout) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        if line.startswith("data: "):
+                            json_str = line[6:]
+                            if json_str == "[DONE]":
+                                break
+                            chunk = json.loads(json_str)
+                            if is_openrouter:
+                                content = chunk["choices"][0].get("delta", {}).get("content", "")
+                            else:
+                                content = chunk["choices"][0].get("text", "")
+                            reply += content
+                    except Exception as e:
+                        print(f"Error parsing stream chunk: {e}")
         return reply
 
     def _handle_error(self, e):
