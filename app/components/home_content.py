@@ -73,8 +73,15 @@ def content() -> None:
                                 with chat_box:
                                     # Create a message container for text and related images
                                     with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
-                                        # First show the text response
+                                        # First show the text response with markdown formatting
                                         ui.markdown(response['text']).classes('text-white')
+                                        
+                                        # Display any thoughts in a subtle way
+                                        if response.get("thoughts") and len(response["thoughts"]) > 0:
+                                            ui.separator().classes('my-2')
+                                            with ui.expansion('Thoughts', icon='psychology').classes('w-full'):
+                                                for thought in response["thoughts"]:
+                                                    ui.markdown(f"*{thought}*").classes('text-gray-300 text-sm italic pl-4')
                                         
                                         # Display any generated images right below the text
                                         if response.get("images") and len(response["images"]) > 0:

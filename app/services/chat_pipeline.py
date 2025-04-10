@@ -57,47 +57,47 @@ class ChatPipeline:
             model=main_model
         )
         
-        # Step 4: Parse response
+        # Step 4: Parse response for tags
         self.logger.debug("Step 4: Parsing response for special tags")
-        parsed_response = ResponseParser.parse_response(llm_response)
+        parsed_content = ResponseParser.parse_response(llm_response)
         
         # Log what was extracted in detail
-        self.logger.debug(f"Parsed response: {json.dumps(parsed_response, indent=2)}")
+        self.logger.debug(f"Parsed content: {json.dumps(parsed_content, indent=2)}")
         
-        if parsed_response.get("thoughts"):
-            self.logger.info(f"Extracted {len(parsed_response['thoughts'])} thoughts")
-            for i, thought in enumerate(parsed_response['thoughts']):
+        if parsed_content.get("thoughts"):
+            self.logger.info(f"Extracted {len(parsed_content['thoughts'])} thoughts")
+            for i, thought in enumerate(parsed_content['thoughts']):
                 self.logger.debug(f"Thought {i+1}: {thought[:50]}...")
         
-        if parsed_response.get("images"):
-            self.logger.info(f"Extracted {len(parsed_response['images'])} image requests")
-            for i, img in enumerate(parsed_response['images']):
+        if parsed_content.get("images"):
+            self.logger.info(f"Extracted {len(parsed_content['images'])} image requests")
+            for i, img in enumerate(parsed_content['images']):
                 self.logger.debug(f"Image {i+1}: {img[:50]}...")
         
-        if parsed_response.get("mood"):
-            self.logger.info(f"Mood update: {parsed_response['mood']}")
+        if parsed_content.get("mood"):
+            self.logger.info(f"Mood update: {parsed_content['mood']}")
         
         # Step 5: Store conversation
         self.logger.debug("Step 5: Storing conversation in memory")
         self.memory_system.add_conversation_entry("user", user_message)
-        self.memory_system.add_conversation_entry("assistant", parsed_response["main_text"])
+        self.memory_system.add_conversation_entry("assistant", llm_response)  # Store original response
         
         # Step 6: Process response elements (thoughts, mood changes, etc.)
         self.logger.debug("Step 6: Processing extracted elements")
         
         # Process thoughts
-        for thought in parsed_response.get("thoughts", []):
+        for thought in parsed_content.get("thoughts", []):
             self.memory_system.add_thought(thought)
             self.logger.debug(f"Added thought: {thought[:50]}...")
         
         # Process mood changes
-        if parsed_response.get("mood"):
-            self.memory_system.update_mood(parsed_response["mood"])
-            self.logger.debug(f"Updated mood to: {parsed_response['mood']}")
+        if parsed_content.get("mood"):
+            self.memory_system.update_mood(parsed_content["mood"])
+            self.logger.debug(f"Updated mood to: {parsed_content['mood']}")
         
         # Process image generation with descriptions
         image_results = []
-        for i, image_prompt in enumerate(parsed_response.get("images", [])):
+        for i, image_prompt in enumerate(parsed_content.get("images", [])):
             self.logger.info(f"Generating image for: {image_prompt[:50]}...")
             try:
                 image_url = await self.image_generator.generate(image_prompt)
@@ -121,11 +121,11 @@ class ChatPipeline:
             except Exception as e:
                 self.logger.error(f"Error generating image: {str(e)}")
         
-        # Return both the text response and any generated images
+        # Return both the original text response and any generated images
         self.logger.info("Message processing complete")
         return {
-            "text": parsed_response["main_text"],
+            "text": llm_response,  # Return original response text
             "images": image_results,
-            "thoughts": parsed_response.get("thoughts", []),
-            "mood": parsed_response.get("mood")
+            "thoughts": parsed_content.get("thoughts", []),
+            "mood": parsed_content.get("mood")
         }
