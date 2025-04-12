@@ -244,10 +244,24 @@ def test_image_generator_parser():
         # Results area
         results_container = ui.column().classes('w-full')
         
-        async def run_test():
+        async def generate_images(scenes):
+            """Generate images for each scene"""
+            with results_container:
+                ui.label("Generated Images:").classes('text-lg font-bold')
+                with ui.row().classes('flex-wrap gap-4'):
+                    for scene in scenes:
+                        try:
+                            # Generate image
+                            image_url = await image_generator.generate(scene)
+                            if image_url:
+                                with ui.card().classes('w-[300px]'):
+                                    ui.image(image_url).classes('w-full')
+                                    ui.label(scene).classes('text-xs text-gray-400')
+                        except Exception as e:
+                            ui.notify(f"Error generating image: {str(e)}", color='negative')
+        
+        async def run_test(e):
             """Run the test with the current input"""
-            test_button.props('loading')
-            ui.update()
             try:
                 # Get current appearance from memory system
                 current_appearance = memory_system.get_recent_appearances(1)
@@ -271,31 +285,16 @@ def test_image_generator_parser():
                         
                         ui.separator()
                         
-                        # Generate images for each scene
-                        ui.label("Generated Images:").classes('text-lg font-bold')
-                        with ui.row().classes('flex-wrap gap-4'):
-                            for scene in parsed_scenes:
-                                try:
-                                    # Generate image
-                                    image_url = await image_generator.generate(scene)
-                                    
-                                    if image_url:
-                                        with ui.card().classes('w-[300px]'):
-                                            ui.image(image_url).classes('w-full')
-                                            ui.label(scene).classes('text-xs text-gray-400')
-                                except Exception as e:
-                                    ui.notify(f"Error generating image: {str(e)}", color='negative')
+                        # Generate images asynchronously
+                        await generate_images(parsed_scenes)
                 else:
                     with results_container:
                         ui.label("No visual scenes found in the input").classes('text-gray-400')
             except Exception as e:
                 ui.notify(f"Error: {str(e)}", color='negative')
-            finally:
-                # Reset button state
-                test_button.props('')
         
         # Run test button
-        test_button = ui.button('Run Test', on_click=run_test).props('icon=play_arrow color=purple')
+        ui.button('Run Test', on_click=run_test).props('icon=play_arrow color=purple')
 
 def content() -> None:
     prompt_manager = PromptManager()
