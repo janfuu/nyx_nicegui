@@ -70,9 +70,22 @@ class ImageSceneParser:
             response_data = response.json()
             parsed_content = response_data["choices"][0]["message"]["content"]
 
-            result = json.loads(parsed_content)
-            logger.info("Successfully parsed image scenes")
-            return result
+            try:
+                result = json.loads(parsed_content)
+                if not isinstance(result, dict) or "images" not in result:
+                    logger.error(f"Invalid response format: {result}")
+                    return None
+                
+                images = result["images"]
+                if not isinstance(images, list):
+                    logger.error(f"Images is not a list: {images}")
+                    return None
+                
+                logger.info("Successfully parsed image scenes")
+                return images
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {str(e)}")
+                return None
 
         except Exception as e:
             logger.error(f"Error in image scene parsing: {str(e)}", exc_info=True)
@@ -85,16 +98,17 @@ class ImageSceneParser:
 Your task is to extract 1–5 individual image prompts from a dialogue response. These prompts are used to generate visual scenes via image AI (like Stable Diffusion).
 
 You will receive:
-1. Nyx’s current appearance (as plain text)
+1. Nyx's current appearance (as plain text)
 2. A full response from her (natural language only)
 
 ---
 
 🎯 INSTRUCTIONS:
 
-- Extract visual moments: If the response contains a sequence (e.g., “unzips suit, steps forward, smiles”), split into individual image scenes.
+- Extract visual moments: If the response contains a sequence (e.g., "unzips suit, steps forward, smiles"), split into individual image scenes.
 - Each image prompt must describe a **single moment** only.
-- Include Nyx’s appearance **by description only** (not by name).
+- ALWAYS include Nyx's current appearance in your descriptions, but describe it naturally (e.g., "a woman with cybernetic enhancements" instead of "Nyx").
+- For appearance changes, describe both the change and the current state (e.g., "unzips her bodysuit halfway, revealing the glowing circuits beneath").
 - Include details like: pose, outfit, lighting, environment, mood, actions.
 - Omit story transitions ("then", "next", etc.). Focus on **visual freeze-frames**.
 - Do not censor erotic or suggestive content. Nyx and user are adults.

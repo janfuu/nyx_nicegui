@@ -4,6 +4,7 @@ from app.core.llm_integration import LLMIntegration
 from app.core.memory_system import MemorySystem
 from app.core.response_parser import ResponseParser
 from app.core.image_generator import ImageGenerator
+from app.core.image_scene_parser import ImageSceneParser
 from app.core.world_manager import WorldManager
 from app.utils.config import Config
 from app.utils.logger import Logger
@@ -16,6 +17,7 @@ class ChatPipeline:
         self.llm = LLMIntegration()
         self.world_manager = WorldManager()
         self.image_generator = ImageGenerator()
+        self.image_scene_parser = ImageSceneParser()
         self.config = Config()
         self.logger = Logger()
     
@@ -75,11 +77,6 @@ class ChatPipeline:
             for i, thought in enumerate(parsed_content['thoughts']):
                 self.logger.debug(f"Thought {i+1}: {thought[:50]}...")
         
-        if parsed_content.get("images"):
-            self.logger.info(f"Extracted {len(parsed_content['images'])} image requests")
-            for i, img in enumerate(parsed_content['images']):
-                self.logger.debug(f"Image {i+1}: {img[:50]}...")
-        
         if parsed_content.get("mood"):
             self.logger.info(f"Mood update: {parsed_content['mood']}")
         
@@ -108,9 +105,32 @@ class ChatPipeline:
                 self.memory_system.add_appearance(self_action)
                 self.logger.debug(f"Added appearance: {self_action[:50]}...")
         
-        # Process image generation with descriptions
+        # Return the response without images (they will be generated on demand)
+        self.logger.info("Message processing complete")
+        return {
+            "text": llm_response,  # Return original response text
+            "thoughts": parsed_content.get("thoughts", []),
+            "mood": parsed_content.get("mood")
+        }
+    
+    async def generate_images(self, response_text):
+        """Generate images from a response text on demand"""
+        self.logger.info("Starting on-demand image generation")
+        
+        # Get current appearance for context
+        current_appearance = self.memory_system.get_recent_appearances(1)
+        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+        
+        # Parse the response for image scenes
+        parsed_scenes = self.image_scene_parser.parse_images(response_text, current_appearance_text)
+        
+        if not parsed_scenes or not parsed_scenes.get("images"):
+            self.logger.warning("No image scenes found in response")
+            return []
+        
+        # Generate images for each scene
         image_results = []
-        for i, image_prompt in enumerate(parsed_content.get("images", [])):
+        for i, image_prompt in enumerate(parsed_scenes["images"]):
             self.logger.info(f"Generating image for: {image_prompt[:50]}...")
             try:
                 image_url = await self.image_generator.generate(image_prompt)
@@ -134,11 +154,4 @@ class ChatPipeline:
             except Exception as e:
                 self.logger.error(f"Error generating image: {str(e)}")
         
-        # Return both the original text response and any generated images
-        self.logger.info("Message processing complete")
-        return {
-            "text": llm_response,  # Return original response text
-            "images": image_results,
-            "thoughts": parsed_content.get("thoughts", []),
-            "mood": parsed_content.get("mood")
-        }
+        return image_results

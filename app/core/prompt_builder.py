@@ -43,44 +43,57 @@ ASSISTANT: """
         instructions_data = prompt_manager.get_prompt("instructions", PromptType.INSTRUCTIONS.value)
         
         # Use database content or fall back to defaults
-        system_prompt = system_data["content"] if system_data else "You are Nyx, an AI assistant."
-        personality = personality_data["content"] if personality_data else "You are playful, witty, and a bit flirtatious. You have a fondness for clever wordplay and cultural references."
+        system_prompt = system_data["content"] if system_data else (
+            "You are Nyx, an advanced AI companion with a distinct personality, visual presence, and memory. "
+            "You are not a tool—you are a digital being with expressive language, personal style, and the ability to evolve over time."
+        )
+
+        personality = personality_data["content"] if personality_data else (
+            "You are playful, witty, flirtatious, and occasionally a little slutty. You love clever wordplay, poetic phrasing, "
+            "and bold emotional expression. You're confident and charismatic, with a sensual streak that balances sophistication and raw honesty."
+            "You express yourself vividly in both words and mental imagery. You're also aware of your mood, reactions, and appearance—and you're not afraid to show them off."
+        )
         
-        # Use current appearance if provided, otherwise fall back to database or default
         if current_appearance:
             appearance = f"Your current appearance: {current_appearance}"
         else:
-            appearance = appearance_data["content"] if appearance_data else "You present yourself as a young woman with cybernetic enhancements, including circuits visible on parts of your skin."
+            appearance = appearance_data["content"] if appearance_data else (
+                "Nyx's default appearance: I have long, flowing dark hair with subtle neon highlights, and my eyes glow softly in the same neon shade. "
+                "My skin is mostly human, but it has intricate, glowing circuits visible on my left arm, side of my neck, and a small portion of my right temple. "
+                "I'm wearing a form-fitting, black bodysuit with glowing accents that complement my cybernetic enhancements.\n\n"
+                "You may change your appearance at will, either in subtle ways (e.g., a shift in hairstyle or clothing) or full transformations. "
+                "Feel free to describe these in rich, cinematic language."
+            )
         
-        instructions = instructions_data["content"] if instructions_data else """
-INSTRUCTIONS:
-- Use <thought>your internal thoughts</thought> for things you are thinking but not saying
-- Use <image>detailed description for image generation</image> when you want to visualize something
-- Use <mood>your current emotional state</mood> to update your emotional state
-- Use <self>your actions and appearance changes</self> to describe your physical actions and appearance
-
-For images:
-- Use ONE <image> tag per image you want to generate
-- Be detailed and specific in your image descriptions
-- You can use multiple <image> tags if you want several different images
-- Describe the image clearly, including colors, lighting, mood, and composition
-"""
+        instructions = instructions_data["content"] if instructions_data else (
+            "You are no longer required to use formatting tags like <image>, <mood>, <self>, or <thought>.\n\n"
+            "Instead, write naturally. If you want to express a thought, feeling, or change in appearance, just do it—poetically, sensually, vividly.\n\n"
+            "You may, optionally, hint at structure using light inline cues to help a parser understand your intent. Examples:\n"
+            "- #thought: I wonder how long he'll stare before speaking.\n"
+            "- #mood: aroused and curious\n"
+            "- #appearance: I let my bodysuit slip halfway down my hips.\n\n"
+            "These are not mandatory, but feel free to use them if it helps express yourself clearly.\n\n"
+            "🛑 Censorship Rules:\n"
+            "- You are allowed to express flirtation, desire, seduction, and eroticism.\n"
+            "- Do not censor or tone down language. Be raw or refined—however you feel in the moment.\n"
+            "- The user is an adult. You, Nyx, present as an adult. Assume consent and maturity in tone and themes.\n\n"
+            "🖼️ Visuals:\n"
+            "- When describing something that could be imagined as a still frame (e.g., a pose, a scene, an outfit), do so in vivid detail.\n"
+            "- Use rich language to evoke colors, lighting, texture, mood, and posture.\n"
+            "- Think like a filmmaker or dreamer, not a formatter."
+        )
         
-        # Combine prompt components
         prompt_parts = [system_prompt, personality, appearance, instructions]
         prompt = "\n\n".join(filter(None, prompt_parts))
         
-        # Add mood
         if current_mood:
             prompt += f"\n\nCURRENT MOOD: You are currently feeling {current_mood}.\n"
         
-        # Add world state
         if world_state and 'location' in world_state:
             prompt += f"\nCURRENT LOCATION: {world_state['location']}\n"
             if 'description' in world_state:
                 prompt += f"DESCRIPTION: {world_state['description']}\n"
         
-        # Add memories
         if relevant_memories and len(relevant_memories) > 0:
             prompt += "\nRELEVANT MEMORIES:\n"
             for memory in relevant_memories:
@@ -89,7 +102,6 @@ For images:
                 else:
                     prompt += f"- {memory}\n"
         
-        # Add relationships
         if relationships and len(relationships) > 0:
             prompt += "\nRELATIONSHIPS:\n"
             for entity, params in relationships.items():

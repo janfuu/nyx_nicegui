@@ -48,9 +48,19 @@ async def process_message(request):
     user_message = data.get('message', '')
     
     # Process the message
-    response = chat_pipeline.process_message(user_message)
+    response = await chat_pipeline.process_message(user_message)
     
     return response
+
+@app.post('/api/generate_images')
+async def generate_images(request):
+    data = await request.json()
+    response_text = data.get('response_text', '')
+    
+    # Generate images for the response
+    images = await chat_pipeline.generate_images(response_text)
+    
+    return {"images": images}
 
 @ui.page('/')
 def index():

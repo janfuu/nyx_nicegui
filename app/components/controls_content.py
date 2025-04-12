@@ -6,6 +6,8 @@ from functools import partial
 import json
 import os
 from pathlib import Path
+from app.core.image_scene_parser import ImageSceneParser
+from app.core.image_generator import ImageGenerator
 
 def save_prompt(name, type_value, text_area):
     prompt_manager = PromptManager()
@@ -225,150 +227,75 @@ def view_logs():
     logs_dialog.open()
 
 def test_image_generator_parser():
-    """Test the image generator and response parser together"""
-    test_dialog = ui.dialog()
-    with test_dialog:
-        with ui.card().classes('w-full max-w-3xl'):
-            ui.markdown("### Image Generator & Parser Test")
-            
-            # Test input area
-            test_input = ui.textarea(
-                label="Test Response with Tags",
-                placeholder="Enter a response with <image>, <thought>, <mood>, and <self> tags",
-                value="""Hello! Let me show you something interesting.
-
-<image>A futuristic cityscape at sunset, with flying cars and holographic advertisements, cyberpunk style, digital art, high detail</image>
-
-<thought>I wonder if they'll like this view of the future</thought>
-
-<mood>excited</mood>
-
-<self>Adjusts her holographic interface with a graceful gesture</self>
-
-What do you think about this vision of the future?"""
-            ).classes('w-full h-48')
-            
-            # Results area
-            results_area = ui.scroll_area().classes('h-96 w-full')
-            
-            # Function to display image details - copied from home_content.py
-            def show_image_details(image_data):
-                details_dialog = ui.dialog()
-                with details_dialog:
-                    with ui.card().classes('w-full max-w-3xl'):
-                        ui.label('Image Details').classes('text-xl font-bold mb-2')
-                        ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
-                        ui.label('Original Prompt:').classes('font-bold')
-                        ui.textarea(value=image_data["description"]).classes('w-full bg-gray-800 border-none').props('readonly')
-                        ui.button('Close', on_click=details_dialog.close).classes('self-end')
-                details_dialog.open()
-            
-            async def run_test():
-                from app.core.response_parser import ResponseParser
-                from app.core.image_generator import ImageGenerator
-                from app.models.prompt_models import PromptManager, PromptType
+    """Test the image generator and scene parser together"""
+    # Initialize components
+    memory_system = MemorySystem()
+    image_scene_parser = ImageSceneParser()
+    image_generator = ImageGenerator()
+    
+    with ui.card().classes('w-full p-4'):
+        ui.label('Test Image Generation').classes('text-xl font-bold mb-4')
+        
+        # Test input area
+        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+            ui.label('Enter a response with visual descriptions:').classes('text-sm mb-2')
+            test_input = ui.textarea(placeholder='Enter text with visual descriptions...').classes('w-full bg-gray-800 border-none')
+        
+        # Results area
+        results_container = ui.column().classes('w-full')
+        
+        async def run_test():
+            """Run the test with the current input"""
+            test_button.props('loading')
+            ui.update()
+            try:
+                # Get current appearance from memory system
+                current_appearance = memory_system.get_recent_appearances(1)
+                current_appearance_text = current_appearance[0]["description"] if current_appearance else None
                 
-                # Reset parser prompt to latest version
-                prompt_manager = PromptManager()
-                prompt_manager.reset_to_default("response_parser", PromptType.PARSER.value)
+                # Parse the input for visual scenes
+                parsed_scenes = image_scene_parser.parse_images(
+                    test_input.value,
+                    current_appearance=current_appearance_text
+                )
                 
                 # Clear previous results
-                results_area.clear()
+                results_container.clear()
                 
-                # Parse the response
-                with results_area:
-                    parsed_result = ResponseParser.parse_response(test_input.value)
-                    
-                    # Display raw response
-                    ui.markdown("### Raw Response")
-                    with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
-                        ui.textarea(value=test_input.value).classes('w-full bg-gray-800 border-none').props('readonly')
-                    
-                    # Display parsed data
-                    ui.markdown("### Parsed Data")
-                    with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
-                        ui.textarea(value=json.dumps(parsed_result, indent=2, ensure_ascii=False)).classes('w-full bg-gray-800 border-none').props('readonly')
-                    
-                    # Display main text
-                    if parsed_result.get("main_text"):
-                        ui.markdown("### Main Text")
-                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
-                            ui.markdown(str(parsed_result["main_text"]))
-                    
-                    # Display thoughts
-                    if parsed_result.get("thoughts"):
-                        ui.markdown("### Thoughts")
-                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
-                            for thought in parsed_result["thoughts"]:
-                                ui.markdown(f"*{str(thought)}*").classes('text-gray-300 italic')
-                                if thought != parsed_result["thoughts"][-1]:  # Don't add separator after last thought
-                                    ui.separator().classes('my-2')
-                    
-                    # Display mood
-                    if parsed_result.get("mood"):
-                        ui.markdown("### Mood")
-                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
-                            ui.markdown(f"**Current Mood:** {str(parsed_result['mood'])}").classes('text-blue-300')
-                    
-                    # Display self actions
-                    if parsed_result.get("self"):
-                        ui.markdown("### Self Actions")
-                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
-                            ui.textarea(value=parsed_result["self"]).classes('w-full bg-gray-800 border-none').props('readonly')
-                    
-                    # If images were found, generate them
-                    if parsed_result.get("images"):
-                        ui.markdown("### Generated Images")
-                        image_generator = ImageGenerator()
+                if parsed_scenes and len(parsed_scenes) > 0:
+                    with results_container:
+                        ui.label("Parsed Scenes:").classes('text-lg font-bold')
+                        for scene in parsed_scenes:
+                            with ui.card().classes('w-full p-4 bg-gray-800'):
+                                ui.label(scene).classes('text-sm')
                         
-                        with ui.row().classes('flex-wrap gap-2 w-full'):
-                            for i, image_prompt in enumerate(parsed_result["images"]):
-                                # Create a container for each image and its controls
-                                with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                    # Show loading state initially
-                                    loading_container = ui.element('div').classes('w-full h-[180px] flex items-center justify-center')
-                                    with loading_container:
-                                        ui.spinner('dots').classes('text-4xl')
+                        ui.separator()
+                        
+                        # Generate images for each scene
+                        ui.label("Generated Images:").classes('text-lg font-bold')
+                        with ui.row().classes('flex-wrap gap-4'):
+                            for scene in parsed_scenes:
+                                try:
+                                    # Generate image
+                                    image_url = await image_generator.generate(scene)
                                     
-                                    try:
-                                        image_url = await image_generator.generate(image_prompt)
-                                        if image_url:
-                                            # Create image data structure like in home_content.py
-                                            image_data = {
-                                                "url": image_url,
-                                                "description": image_prompt,
-                                                "id": f"img_{i}"
-                                            }
-                                            
-                                            # Clear loading container and show image
-                                            loading_container.clear()
-                                            img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                            img.on('click', lambda d=image_data: show_image_details(d))
-                                            
-                                            # Image caption with preview option
-                                            with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                # Show a shorter version of the prompt without the score prefix
-                                                display_prompt = image_prompt.split(", ", 3)[-1] if ", " in image_prompt else image_prompt
-                                                short_desc = display_prompt[:30] + ("..." if len(display_prompt) > 30 else "")
-                                                ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
-                                                    .props('flat dense round').classes('text-xs')
-                                        else:
-                                            loading_container.clear()
-                                            with loading_container:
-                                                ui.label('Failed to generate image').classes('text-red-500 text-sm')
-                                    except Exception as e:
-                                        loading_container.clear()
-                                        with loading_container:
-                                            ui.label(f"Error: {str(e)}").classes('text-red-500 text-sm')
-                    else:
-                        ui.markdown("No images found in parsed response")
-            
-            # Test button
-            ui.button('Run Test', on_click=run_test).classes('mt-2')
-            ui.button('Close', on_click=test_dialog.close).classes('mt-2')
-    
-    test_dialog.open()
+                                    if image_url:
+                                        with ui.card().classes('w-[300px]'):
+                                            ui.image(image_url).classes('w-full')
+                                            ui.label(scene).classes('text-xs text-gray-400')
+                                except Exception as e:
+                                    ui.notify(f"Error generating image: {str(e)}", color='negative')
+                else:
+                    with results_container:
+                        ui.label("No visual scenes found in the input").classes('text-gray-400')
+            except Exception as e:
+                ui.notify(f"Error: {str(e)}", color='negative')
+            finally:
+                # Reset button state
+                test_button.props('')
+        
+        # Run test button
+        test_button = ui.button('Run Test', on_click=run_test).props('icon=play_arrow color=purple')
 
 def content() -> None:
     prompt_manager = PromptManager()
@@ -495,21 +422,46 @@ def content() -> None:
             
             # Parser Panel
             with ui.tab_panel(parser_tab):
-                parser_prompt = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
-                if parser_prompt:
-                    with ui.column().classes('gap-2 w-full'):
-                        ui.label('Edit Response Parser').classes('text-lg font-bold')
-                        ui.label(parser_prompt["description"]).classes('text-md text-gray-500')
-                        ui.label('This defines how to parse special tags in responses').classes('text-sm text-gray-500')
-                        parser_textarea = ui.textarea(value=parser_prompt["content"])\
-                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                            .props('wrap="soft" auto-grow')
-                        
-                        with ui.row().classes('gap-2'):
-                            ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.PARSER.value, parser_textarea))\
-                                .props('color="primary"')
-                            ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.PARSER.value, parser_textarea))\
-                                .props('outline color="grey"')
+                with ui.tabs().classes('w-full') as parser_tabs:
+                    image_parser_tab = ui.tab('Image Scene Parser')
+                    response_parser_tab = ui.tab('Response Parser')
+                
+                with ui.tab_panels(parser_tabs, value=image_parser_tab).classes('w-full'):
+                    # Image Scene Parser Panel
+                    with ui.tab_panel(image_parser_tab):
+                        image_parser_prompt = prompt_manager.get_prompt("image_scene_parser", PromptType.PARSER.value)
+                        if image_parser_prompt:
+                            with ui.column().classes('gap-2 w-full'):
+                                ui.label('Edit Image Scene Parser').classes('text-lg font-bold')
+                                ui.label(image_parser_prompt["description"]).classes('text-md text-gray-500')
+                                ui.label('This defines how to parse visual scenes from responses').classes('text-sm text-gray-500')
+                                image_parser_textarea = ui.textarea(value=image_parser_prompt["content"])\
+                                    .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                                    .props('wrap="soft" auto-grow')
+                                
+                                with ui.row().classes('gap-2'):
+                                    ui.button('Save', on_click=partial(save_prompt, "image_scene_parser", PromptType.PARSER.value, image_parser_textarea))\
+                                        .props('color="primary"')
+                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "image_scene_parser", PromptType.PARSER.value, image_parser_textarea))\
+                                        .props('outline color="grey"')
+                    
+                    # Response Parser Panel
+                    with ui.tab_panel(response_parser_tab):
+                        response_parser_prompt = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
+                        if response_parser_prompt:
+                            with ui.column().classes('gap-2 w-full'):
+                                ui.label('Edit Response Parser').classes('text-lg font-bold')
+                                ui.label(response_parser_prompt["description"]).classes('text-md text-gray-500')
+                                ui.label('This defines how to parse thoughts, mood, and appearance changes').classes('text-sm text-gray-500')
+                                response_parser_textarea = ui.textarea(value=response_parser_prompt["content"])\
+                                    .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                                    .props('wrap="soft" auto-grow')
+                                
+                                with ui.row().classes('gap-2'):
+                                    ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.PARSER.value, response_parser_textarea))\
+                                        .props('color="primary"')
+                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.PARSER.value, response_parser_textarea))\
+                                        .props('outline color="grey"')
             
             # Template Panel
             with ui.tab_panel(template_tab):

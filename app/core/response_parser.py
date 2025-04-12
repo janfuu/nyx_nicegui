@@ -13,11 +13,11 @@ class ResponseParser:
     @staticmethod
     def parse_response(response_text, current_appearance=None):
         """
-        Parse the LLM response to extract special tags using LLM parsing
+        Parse the LLM response to extract special tags and infer mood, thoughts, and appearance
         
         Args:
             response_text: The text to parse
-            current_appearance: The current appearance description to use for image generation
+            current_appearance: The current appearance description for context
         """
         logger = Logger()
         logger.info("Starting to parse response")
@@ -32,12 +32,12 @@ class ResponseParser:
             # Return a safe fallback structure
             return {
                 "thoughts": [],
-                "images": [],
                 "mood": None,
-                "self": []
+                "self": [],
+                "main_text": response_text
             }
         
-        logger.info(f"Parsing complete. Found: {len(result.get('thoughts', []))} thoughts, {len(result.get('images', []))} images, Mood update: {'Yes' if result.get('mood') else 'No'}")
+        logger.info(f"Parsing complete. Found: {len(result.get('thoughts', []))} thoughts, Mood update: {'Yes' if result.get('mood') else 'No'}")
         return result
     
     @staticmethod
@@ -83,7 +83,7 @@ class ResponseParser:
             
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Extract any tagged content from the following AI response:\n\n{response_text}"}
+                {"role": "user", "content": f"Analyze the following AI response and extract thoughts, mood, and appearance changes:\n\n{response_text}"}
             ]
             
             endpoint = f"{api_base}/chat/completions"
@@ -134,42 +134,40 @@ class ResponseParser:
             base_prompt = parser_data["content"]
         else:
             # Fallback to default if not in database
-            base_prompt = """You are a structured JSON parser designed to extract tagged content from AI-generated dialogue.
-Your job is to detect and transform any <thought>, <image>, <mood>, and <self> tags into structured JSON outputs.
+            base_prompt = """You are a JSON parser that extracts structured information from AI responses.
+Your task is to extract thoughts, mood changes, and appearance updates from the text.
 
-Strictly follow these rules:
-
-1. Extract only content from <thought>, <image>, <mood>, and <self> tags. Ignore all other text.
-2. When parsing <image> content involving Nyx (the AI character), you MUST include her **full current description**. This includes:
-   - Physical traits (e.g. cybernetic circuits, hair, clothing)
-   - Mood or expression
-   - Environmental context if available
-   - Style and quality keywords
-3. Do not extract <image> content for simple non-visual gestures (e.g., *smiles*, *nods*).
-4. Handle malformed or incomplete tags as follows:
-   - Attempt recovery only if the intended content is obvious
-   - If unsure, skip the tag to avoid false positives
-
-For <image> descriptions:
-- Rewrite content into an image-generation prompt (Stable Diffusion style)
-- Include subject, mood, environment, composition, and visual style
-- Use specific stylistic and quality tags like:
-   "digital art", "cyberpunk", "cinematic lighting", "unreal engine", "high detail", "sharp focus", "by artgerm", "trending on artstation"
-"""
-
-        # Add current appearance if provided
-        if current_appearance:
-            base_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}\n\nWhen generating image prompts, incorporate this current appearance unless explicitly changed by a <self> tag."
-
-        base_prompt += """\n\n✅ Return **only valid JSON** in the following format:
+YOU MUST RETURN VALID JSON in the following format:
 {
   "main_text": "The cleaned response with all tags removed",
   "thoughts": ["thought1", "thought2"],
-  "images": ["score_9, score_8_up, score_7_up, image description1", "score_9, score_8_up, score_7_up, image description2"],
-  "mood": "parsed mood or null",
+  "mood": "detected mood or null",
   "self": ["action1", "action2"]
 }
 
-No extra commentary, no code blocks. Return only the raw JSON object."""
+IMPORTANT RULES:
+
+1. Extract thoughts that are explicitly marked with <thought> tags
+2. Infer mood changes from the text, even if not explicitly tagged
+3. Detect appearance changes or descriptions in the text
+4. Return the main text with all special tags removed
+
+For mood detection:
+- Look for emotional language and tone
+- Consider context and previous mood
+- Return null if no clear mood change is detected
+
+For appearance detection:
+- Look for descriptions of physical changes or actions
+- Include both explicit <self> tags and implicit descriptions
+- Consider the current appearance context
+
+The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
+Do not include backticks, ```json markers, or "Here is the parsed response:" text.
+RETURN ONLY THE JSON OBJECT."""
+
+        # Add current appearance if provided
+        if current_appearance:
+            base_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}\n\nUse this as context for detecting appearance changes."
 
         return base_prompt

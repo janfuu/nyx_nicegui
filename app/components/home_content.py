@@ -142,6 +142,44 @@ def content() -> None:
                                             with ui.expansion('MOOD', icon='mood').classes('w-full'):
                                                 ui.markdown(f"*{response['mood']}*").classes('text-blue-300 text-sm italic pl-4')
                                         
+                                        # Add Visualize button for on-demand image generation
+                                        ui.separator().classes('my-2')
+                                        with ui.row().classes('justify-between w-full'):
+                                            visualize_button = ui.button('Visualize', icon='image')\
+                                                .props('color=purple').classes('mr-2')
+                                            
+                                            async def visualize_response():
+                                                # Show loading state
+                                                visualize_button.props('loading')
+                                                
+                                                try:
+                                                    # Generate images for the response
+                                                    images = await chat_pipeline.generate_images(response['text'])
+                                                    
+                                                    if images:
+                                                        # Display generated images
+                                                        with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
+                                                            with ui.row().classes('flex-wrap gap-2 w-full'):
+                                                                for image_data in images:
+                                                                    with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                                        img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                                                        img.on('click', lambda d=image_data: show_image_details(d))
+                                                                        
+                                                                        with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                                            short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
+                                                                            ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                                            ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
+                                                                                .props('flat dense round').classes('text-xs')
+                                                    else:
+                                                        ui.notify('No visual scenes found in the response', color='warning')
+                                                except Exception as e:
+                                                    ui.notify(f'Error generating images: {str(e)}', color='negative')
+                                                finally:
+                                                    # Reset button state
+                                                    visualize_button.props('')
+                                            
+                                            visualize_button.on('click', visualize_response)
+                                        
                                         # Display any self actions (appearance updates)
                                         if response.get("self") and len(response["self"]) > 0:
                                             ui.separator().classes('my-2')

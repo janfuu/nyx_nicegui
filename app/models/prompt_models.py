@@ -210,6 +210,70 @@ For images:
                 "version": 2
             },
             {
+                "name": "response_parser",
+                "type": PromptType.PARSER.value,
+                "content": """You are a JSON parser that extracts structured information from AI responses.
+Your task is to extract thoughts, mood changes, and appearance updates from the text.
+
+YOU MUST RETURN VALID JSON in the following format:
+{
+  "main_text": "The cleaned response with all tags removed",
+  "thoughts": ["thought1", "thought2"],
+  "mood": "detected mood or null",
+  "self": ["action1", "action2"]
+}
+
+IMPORTANT RULES:
+
+1. Extract thoughts that are explicitly marked with <thought> tags
+2. Infer mood changes from the text, even if not explicitly tagged
+3. Detect appearance changes or descriptions in the text
+4. Return the main text with all special tags removed
+
+For mood detection:
+- Look for emotional language and tone
+- Consider context and previous mood
+- Return null if no clear mood change is detected
+
+For appearance detection:
+- Look for descriptions of physical changes or actions
+- Include both explicit <self> tags and implicit descriptions
+- Consider the current appearance context
+
+The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
+Do not include backticks, ```json markers, or "Here is the parsed response:" text.
+RETURN ONLY THE JSON OBJECT.""",
+                "description": "Instructions for parsing response tags",
+                "version": 2
+            },
+            {
+                "name": "image_scene_parser",
+                "type": PromptType.PARSER.value,
+                "content": """You are a visual parser for AI-generated character responses.
+
+Your task is to extract 1–5 individual image prompts from a dialogue response. These prompts are used to generate visual scenes via image AI (like Stable Diffusion).
+
+You will receive:
+1. Nyx's current appearance (as plain text)
+2. A full response from her (natural language only)
+
+---
+
+🎯 INSTRUCTIONS:
+
+- Extract visual moments: If the response contains a sequence (e.g., "unzips suit, steps forward, smiles"), split into individual image scenes.
+- Each image prompt must describe a **single moment** only.
+- Include Nyx's appearance **by description only** (not by name).
+- Include details like: pose, outfit, lighting, environment, mood, actions.
+- Omit story transitions ("then", "next", etc.). Focus on **visual freeze-frames**.
+- Do not censor erotic or suggestive content. Nyx and user are adults.
+- Format output as a clean JSON list of image descriptions.
+
+Return only the `images` array in valid JSON. No commentary.""",
+                "description": "Instructions for parsing visual scenes from responses",
+                "version": 1
+            },
+            {
                 "name": "chat_template",
                 "type": PromptType.TEMPLATE.value,
                 "content": """{% for message in messages %}
@@ -224,38 +288,6 @@ ASSISTANT: {{ message.content }}
 ASSISTANT: """,
                 "description": "Template for formatting chat history",
                 "version": 1
-            },
-            {
-                "name": "response_parser",
-                "type": PromptType.PARSER.value,
-                "content": """You are a JSON parser that extracts structured information from AI responses.
-Your task is to extract thoughts, image descriptions, mood updates, and self actions from the text.
-
-YOU MUST RETURN VALID JSON in the following format:
-{
-  "main_text": "The cleaned response with all tags removed",
-  "thoughts": ["thought1", "thought2"],
-  "images": ["score_9, score_8_up, score_7_up, image description1", "score_9, score_8_up, score_7_up, image description2"],
-  "mood": "detected mood or null",
-  "self": ["action1", "action2"]
-}
-
-IMPORTANT IMAGE FORMATTING:
-- ALL image descriptions MUST start with "score_9, score_8_up, score_7_up, "
-- After the score prefix, include the full image description from the <image> tag
-- Add appropriate style tags if not present: digital art, high detail, sharp focus, trending on artstation
-
-Look for patterns like:
-- Thoughts: <thought>...</thought>
-- Images: <image>...</image>
-- Mood: <mood>...</mood>
-- Self Actions: <self>...</self>
-
-The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
-Do not include backticks, ```json markers, or "Here is the parsed response:" text.
-RETURN ONLY THE JSON OBJECT.""",
-                "description": "Instructions for parsing response tags",
-                "version": 2
             }
         ]
         
