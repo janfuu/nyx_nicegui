@@ -27,7 +27,7 @@
         "use_streaming": false,
         
         "parser_provider": "openrouter",
-        "parser_model": "mistralai/mistral-small-24b-instruct-2501"
+        "parser_model": "mistralai/mistral-large-2411"
     },
     "image_generation": {
         "model": "civitai:443821@1478064",

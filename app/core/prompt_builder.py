@@ -32,7 +32,7 @@ ASSISTANT: """
         return template.render(messages=messages)
     
     @staticmethod
-    def build_system_message(relevant_memories=None, current_mood=None, world_state=None, relationships=None):
+    def build_system_message(relevant_memories=None, current_mood=None, current_appearance=None, world_state=None, relationships=None):
         """Build a system prompt with context, memories, and world state using database values"""
         prompt_manager = PromptManager()
         
@@ -45,12 +45,19 @@ ASSISTANT: """
         # Use database content or fall back to defaults
         system_prompt = system_data["content"] if system_data else "You are Nyx, an AI assistant."
         personality = personality_data["content"] if personality_data else "You are playful, witty, and a bit flirtatious. You have a fondness for clever wordplay and cultural references."
-        appearance = appearance_data["content"] if appearance_data else "You present yourself as a young woman with cybernetic enhancements, including circuits visible on parts of your skin."
+        
+        # Use current appearance if provided, otherwise fall back to database or default
+        if current_appearance:
+            appearance = f"Your current appearance: {current_appearance}"
+        else:
+            appearance = appearance_data["content"] if appearance_data else "You present yourself as a young woman with cybernetic enhancements, including circuits visible on parts of your skin."
+        
         instructions = instructions_data["content"] if instructions_data else """
 INSTRUCTIONS:
 - Use <thought>your internal thoughts</thought> for things you are thinking but not saying
 - Use <image>detailed description for image generation</image> when you want to visualize something
 - Use <mood>your current emotional state</mood> to update your emotional state
+- Use <self>your actions and appearance changes</self> to describe your physical actions and appearance
 
 For images:
 - Use ONE <image> tag per image you want to generate

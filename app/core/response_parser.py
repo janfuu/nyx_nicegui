@@ -11,16 +11,21 @@ class LLMProvider(Enum):
 
 class ResponseParser:
     @staticmethod
-    def parse_response(response_text):
+    def parse_response(response_text, current_appearance=None):
         """
         Parse the LLM response to extract special tags using LLM parsing
+        
+        Args:
+            response_text: The text to parse
+            current_appearance: The current appearance description to use for image generation
         """
         logger = Logger()
         logger.info("Starting to parse response")
         logger.debug(f"Original response text: {response_text}")
+        logger.debug(f"Current appearance: {current_appearance}")
         
         # Get the parsed result using LLM
-        result = ResponseParser._llm_parse(response_text)
+        result = ResponseParser._llm_parse(response_text, current_appearance)
         
         if not result:
             logger.error("LLM parsing failed")
@@ -28,14 +33,15 @@ class ResponseParser:
             return {
                 "thoughts": [],
                 "images": [],
-                "mood": None
+                "mood": None,
+                "self": []
             }
         
         logger.info(f"Parsing complete. Found: {len(result.get('thoughts', []))} thoughts, {len(result.get('images', []))} images, Mood update: {'Yes' if result.get('mood') else 'No'}")
         return result
     
     @staticmethod
-    def _llm_parse(response_text):
+    def _llm_parse(response_text, current_appearance=None):
         """Parse using an LLM for advanced parsing"""
         logger = Logger()
         config = Config()
@@ -70,11 +76,8 @@ class ResponseParser:
             prompt_manager = PromptManager()
             parser_data = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
             
-            # Get Nyx's description from config
-            nyx_description = config.get("character", "description", "")
-            
             # Build parsing prompt
-            system_prompt = ResponseParser._get_parser_system_prompt()
+            system_prompt = ResponseParser._get_parser_system_prompt(current_appearance)
             
             logger.debug(f"Parser system prompt: {system_prompt}")
             
@@ -122,21 +125,21 @@ class ResponseParser:
             return None
 
     @staticmethod
-    def _get_parser_system_prompt() -> str:
+    def _get_parser_system_prompt(current_appearance=None) -> str:
         """Get the parser system prompt from the database"""
         prompt_manager = PromptManager()
         parser_data = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
         
         if parser_data:
-            return parser_data["content"]
+            base_prompt = parser_data["content"]
         else:
             # Fallback to default if not in database
-            return """You are a structured JSON parser designed to extract tagged content from AI-generated dialogue.
-Your job is to detect and transform any <thought>, <image>, and <mood> tags into structured JSON outputs.
+            base_prompt = """You are a structured JSON parser designed to extract tagged content from AI-generated dialogue.
+Your job is to detect and transform any <thought>, <image>, <mood>, and <self> tags into structured JSON outputs.
 
 Strictly follow these rules:
 
-1. Extract only content from <thought>, <image>, and <mood> tags. Ignore all other text.
+1. Extract only content from <thought>, <image>, <mood>, and <self> tags. Ignore all other text.
 2. When parsing <image> content involving Nyx (the AI character), you MUST include her **full current description**. This includes:
    - Physical traits (e.g. cybernetic circuits, hair, clothing)
    - Mood or expression
@@ -152,18 +155,21 @@ For <image> descriptions:
 - Include subject, mood, environment, composition, and visual style
 - Use specific stylistic and quality tags like:
    "digital art", "cyberpunk", "cinematic lighting", "unreal engine", "high detail", "sharp focus", "by artgerm", "trending on artstation"
+"""
 
-Nyx's default description (if no override is set):
-"A young woman with cybernetic enhancements, circuits glowing faintly beneath her skin, sleek black hair, futuristic urban clothing, expressive violet eyes. She has a playful, mysterious, and sophisticated presence."
+        # Add current appearance if provided
+        if current_appearance:
+            base_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}\n\nWhen generating image prompts, incorporate this current appearance unless explicitly changed by a <self> tag."
 
-⚠️ NOTE: In the future, Nyx may define her own appearance dynamically. If an updated description is provided within the system, use it instead of the default.
-
-✅ Return **only valid JSON** in the following format:
+        base_prompt += """\n\n✅ Return **only valid JSON** in the following format:
 {
   "main_text": "The cleaned response with all tags removed",
   "thoughts": ["thought1", "thought2"],
-  "images": ["parsed image prompt1", "parsed image prompt2"],
-  "mood": "parsed mood or null"
+  "images": ["score_9, score_8_up, score_7_up, image description1", "score_9, score_8_up, score_7_up, image description2"],
+  "mood": "parsed mood or null",
+  "self": ["action1", "action2"]
 }
 
 No extra commentary, no code blocks. Return only the raw JSON object."""
+
+        return base_prompt

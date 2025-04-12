@@ -27,12 +27,14 @@ class ChatPipeline:
         self.logger.debug("Step 1: Getting context from memory system")
         conversation_history = self.memory_system.get_recent_conversation(limit=10)
         current_mood = self.memory_system.get_current_mood()
+        current_appearance = self.memory_system.get_recent_appearances(1)
         world_state = self.world_manager.get_current_state()
         relevant_memories = self.memory_system.get_relevant_memories(user_message)
         relationships = self.memory_system.get_relationship_parameters()
         
         # Log context information
         self.logger.debug(f"Current mood: {current_mood}")
+        self.logger.debug(f"Current appearance: {current_appearance[0]['description'] if current_appearance else 'default'}")
         self.logger.debug(f"World state: {world_state}")
         self.logger.debug(f"Found {len(relevant_memories) if relevant_memories else 0} relevant memories")
         
@@ -40,6 +42,7 @@ class ChatPipeline:
         self.logger.debug("Step 2: Building system prompt")
         system_prompt = self.llm.build_system_message(
             mood=current_mood,
+            current_appearance=current_appearance[0]["description"] if current_appearance else None,
             relevant_memories=relevant_memories
         )["content"]
         
@@ -59,7 +62,10 @@ class ChatPipeline:
         
         # Step 4: Parse response for tags
         self.logger.debug("Step 4: Parsing response for special tags")
-        parsed_content = ResponseParser.parse_response(llm_response)
+        parsed_content = ResponseParser.parse_response(
+            llm_response,
+            current_appearance=current_appearance[0]["description"] if current_appearance else None
+        )
         
         # Log what was extracted in detail
         self.logger.debug(f"Parsed content: {json.dumps(parsed_content, indent=2)}")

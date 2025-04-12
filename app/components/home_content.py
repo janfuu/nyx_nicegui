@@ -2,31 +2,68 @@ from nicegui import ui
 from ..services.chat_pipeline import ChatPipeline
 import time
 import asyncio
+from ..core.memory_system import MemorySystem
+import httpx
 
 # Initialize the chat pipeline
 chat_pipeline = ChatPipeline()
 
 def content() -> None:
+    # Initialize memory system
+    memory_system = MemorySystem()
+    
+    # Get initial state from database
+    initial_mood = memory_system.get_current_mood()
+    initial_thoughts = memory_system.get_recent_thoughts(1)
+    initial_appearances = memory_system.get_recent_appearances(1)
+    
+    # Reference to the portrait image element for updating
+    portrait_ref = None
+    
+    async def set_as_portrait(image_url):
+        """Copy the image to the portrait location"""
+        try:
+            # Download the image
+            async with httpx.AsyncClient() as client:
+                response = await client.get(image_url)
+                response.raise_for_status()
+                
+                # Save to assets directory
+                portrait_path = 'app/assets/images/portrait.jpg'
+                with open(portrait_path, 'wb') as f:
+                    f.write(response.content)
+            
+            # Update the portrait in the UI
+            if portrait_ref:
+                portrait_ref.set_source(portrait_path)
+            ui.notify('Portrait updated successfully!', color='positive')
+        except Exception as e:
+            ui.notify(f'Failed to update portrait: {str(e)}', color='negative')
+    
     with ui.row().classes('w-full gap-4 flex-nowrap'):
         # Left Card
         with ui.card().classes('flex-1'):
             with ui.column().classes('gap-4 w-full'):
-                ui.image('assets/images/portrait.jpg').classes('w-full rounded-xl')
+                # Store reference to portrait image
+                portrait_path = 'app/assets/images/portrait.jpg'
+                portrait_ref = ui.image(portrait_path).classes('w-full rounded-xl')
                 
                 # Character's current mood display
                 ui.label('MOOD').classes('text-blue-500 text-sm')
                 with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
-                    mood_display = ui.markdown("Neutral").classes('text-sm')
+                    mood_display = ui.markdown(initial_mood).classes('text-sm')
 
                 # Character's current appearance display
                 ui.label('APPEARANCE').classes('text-purple-500 text-sm')
                 with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
-                    appearance_display = ui.markdown("A young woman with cybernetic enhancements, circuits glowing faintly beneath her skin...").classes('text-sm')
+                    initial_appearance = initial_appearances[0]["description"] if initial_appearances else "A young woman with cybernetic enhancements, circuits glowing faintly beneath her skin..."
+                    appearance_display = ui.markdown(initial_appearance).classes('text-sm')
 
                 # Character's thoughts display
                 ui.label('THOUGHTS').classes('text-gray-500 text-sm')
                 with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
-                    thoughts_display = ui.markdown("It's... unusual to be addressed so familiarly...").classes('text-sm')
+                    initial_thought = initial_thoughts[0]["content"] if initial_thoughts else "It's... unusual to be addressed so familiarly..."
+                    thoughts_display = ui.markdown(initial_thought).classes('text-sm')
 
         # Center Card
         with ui.card().classes('flex-2 w-[800px]'):
@@ -45,7 +82,12 @@ def content() -> None:
                             ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
                             ui.label('Original Prompt:').classes('font-bold')
                             ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
-                            ui.button('Close', on_click=dialog.close).classes('self-end')
+                            
+                            with ui.row().classes('justify-between w-full'):
+                                ui.button('Set as Portrait', 
+                                        on_click=lambda: set_as_portrait(image_data["url"]))\
+                                    .props('icon=face color=purple').classes('mr-2')
+                                ui.button('Close', on_click=dialog.close)
                     dialog.open()
                 
                 # Message input and send button
