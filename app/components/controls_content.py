@@ -270,78 +270,108 @@ def content() -> None:
             with ui.tab_panel(system_tab):
                 system_prompt = prompt_manager.get_prompt("base_system", PromptType.SYSTEM.value)
                 if system_prompt:
-                    ui.label('Edit System Prompt').classes('text-lg font-bold')
-                    ui.label(system_prompt["description"]).classes('text-md text-gray-500')
-                    ui.label('This defines the core identity of the AI').classes('text-sm text-gray-500')
-                    system_textarea = ui.textarea(system_prompt["content"]).classes('w-full h-64').props('wrap="word"')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button('Save', on_click=partial(save_prompt, "base_system", PromptType.SYSTEM.value, system_textarea)).props('color="primary"')
-                        ui.button('Reset to Default', on_click=partial(reset_prompt, "base_system", PromptType.SYSTEM.value, system_textarea)).props('outline color="grey"')
+                    with ui.column().classes('gap-2 w-full'):
+                        ui.label('Edit System Prompt').classes('text-lg font-bold')
+                        ui.label(system_prompt["description"]).classes('text-md text-gray-500')
+                        ui.label('This defines the core identity of the AI').classes('text-sm text-gray-500')
+                        system_textarea = ui.textarea(value=system_prompt["content"])\
+                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                            .props('wrap="soft" auto-grow')
+                        
+                        with ui.row().classes('gap-2'):
+                            ui.button('Save', on_click=partial(save_prompt, "base_system", PromptType.SYSTEM.value, system_textarea))\
+                                .props('color="primary"')
+                            ui.button('Reset to Default', on_click=partial(reset_prompt, "base_system", PromptType.SYSTEM.value, system_textarea))\
+                                .props('outline color="grey"')
             
             # Personality Panel
             with ui.tab_panel(personality_tab):
                 personality_prompt = prompt_manager.get_prompt("personality", PromptType.PERSONALITY.value)
                 if personality_prompt:
-                    ui.label('Edit Personality').classes('text-lg font-bold')
-                    ui.label(personality_prompt["description"]).classes('text-md text-gray-500')
-                    ui.label('This defines behavioral traits and characteristics').classes('text-sm text-gray-500')
-                    personality_textarea = ui.textarea(personality_prompt["content"]).classes('w-full h-64').props('wrap="word"')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button('Save', on_click=partial(save_prompt, "personality", PromptType.PERSONALITY.value, personality_textarea)).props('color="primary"')
-                        ui.button('Reset to Default', on_click=partial(reset_prompt, "personality", PromptType.PERSONALITY.value, personality_textarea)).props('outline color="grey"')
+                    with ui.column().classes('gap-2 w-full'):
+                        ui.label('Edit Personality').classes('text-lg font-bold')
+                        ui.label(personality_prompt["description"]).classes('text-md text-gray-500')
+                        ui.label('This defines behavioral traits and characteristics').classes('text-sm text-gray-500')
+                        personality_textarea = ui.textarea(value=personality_prompt["content"])\
+                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                            .props('wrap="soft" auto-grow')
+                        
+                        with ui.row().classes('gap-2'):
+                            ui.button('Save', on_click=partial(save_prompt, "personality", PromptType.PERSONALITY.value, personality_textarea))\
+                                .props('color="primary"')
+                            ui.button('Reset to Default', on_click=partial(reset_prompt, "personality", PromptType.PERSONALITY.value, personality_textarea))\
+                                .props('outline color="grey"')
             
             # Appearance Panel
             with ui.tab_panel(appearance_tab):
                 appearance_prompt = prompt_manager.get_prompt("appearance", PromptType.APPEARANCE.value)
                 if appearance_prompt:
-                    ui.label('Edit Appearance').classes('text-lg font-bold')
-                    ui.label(appearance_prompt["description"]).classes('text-md text-gray-500')
-                    ui.label('This defines how the AI visualizes itself').classes('text-sm text-gray-500')
-                    appearance_textarea = ui.textarea(appearance_prompt["content"]).classes('w-full h-64').props('wrap="word"')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button('Save', on_click=partial(save_prompt, "appearance", PromptType.APPEARANCE.value, appearance_textarea)).props('color="primary"')
-                        ui.button('Reset to Default', on_click=partial(reset_prompt, "appearance", PromptType.APPEARANCE.value, appearance_textarea)).props('outline color="grey"')
+                    with ui.column().classes('gap-2 w-full'):
+                        ui.label('Edit Appearance').classes('text-lg font-bold')
+                        ui.label(appearance_prompt["description"]).classes('text-md text-gray-500')
+                        ui.label('This defines how the AI visualizes itself').classes('text-sm text-gray-500')
+                        appearance_textarea = ui.textarea(value=appearance_prompt["content"])\
+                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                            .props('wrap="soft" auto-grow')
+                        
+                        with ui.row().classes('gap-2'):
+                            ui.button('Save', on_click=partial(save_prompt, "appearance", PromptType.APPEARANCE.value, appearance_textarea))\
+                                .props('color="primary"')
+                            ui.button('Reset to Default', on_click=partial(reset_prompt, "appearance", PromptType.APPEARANCE.value, appearance_textarea))\
+                                .props('outline color="grey"')
             
             # Instructions Panel
             with ui.tab_panel(instructions_tab):
                 instructions_prompt = prompt_manager.get_prompt("instructions", PromptType.INSTRUCTIONS.value)
                 if instructions_prompt:
-                    ui.label('Edit Instructions').classes('text-lg font-bold')
-                    ui.label(instructions_prompt["description"]).classes('text-md text-gray-500')
-                    ui.label('This defines special tags and formatting instructions').classes('text-sm text-gray-500')
-                    instructions_textarea = ui.textarea(instructions_prompt["content"]).classes('w-full h-64').props('wrap="word"')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button('Save', on_click=partial(save_prompt, "instructions", PromptType.INSTRUCTIONS.value, instructions_textarea)).props('color="primary"')
-                        ui.button('Reset to Default', on_click=partial(reset_prompt, "instructions", PromptType.INSTRUCTIONS.value, instructions_textarea)).props('outline color="grey"')
+                    with ui.column().classes('gap-2 w-full'):
+                        ui.label('Edit Instructions').classes('text-lg font-bold')
+                        ui.label(instructions_prompt["description"]).classes('text-md text-gray-500')
+                        ui.label('This defines special tags and formatting instructions').classes('text-sm text-gray-500')
+                        instructions_textarea = ui.textarea(value=instructions_prompt["content"])\
+                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                            .props('wrap="soft" auto-grow')
+                        
+                        with ui.row().classes('gap-2'):
+                            ui.button('Save', on_click=partial(save_prompt, "instructions", PromptType.INSTRUCTIONS.value, instructions_textarea))\
+                                .props('color="primary"')
+                            ui.button('Reset to Default', on_click=partial(reset_prompt, "instructions", PromptType.INSTRUCTIONS.value, instructions_textarea))\
+                                .props('outline color="grey"')
             
             # Parser Panel
             with ui.tab_panel(parser_tab):
                 parser_prompt = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
                 if parser_prompt:
-                    ui.label('Edit Response Parser').classes('text-lg font-bold')
-                    ui.label(parser_prompt["description"]).classes('text-md text-gray-500')
-                    ui.label('This defines how to parse special tags in responses').classes('text-sm text-gray-500')
-                    parser_textarea = ui.textarea(parser_prompt["content"]).classes('w-full h-64').props('wrap="word"')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.PARSER.value, parser_textarea)).props('color="primary"')
-                        ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.PARSER.value, parser_textarea)).props('outline color="grey"')
+                    with ui.column().classes('gap-2 w-full'):
+                        ui.label('Edit Response Parser').classes('text-lg font-bold')
+                        ui.label(parser_prompt["description"]).classes('text-md text-gray-500')
+                        ui.label('This defines how to parse special tags in responses').classes('text-sm text-gray-500')
+                        parser_textarea = ui.textarea(value=parser_prompt["content"])\
+                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                            .props('wrap="soft" auto-grow')
+                        
+                        with ui.row().classes('gap-2'):
+                            ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.PARSER.value, parser_textarea))\
+                                .props('color="primary"')
+                            ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.PARSER.value, parser_textarea))\
+                                .props('outline color="grey"')
             
             # Template Panel
             with ui.tab_panel(template_tab):
                 template_prompt = prompt_manager.get_prompt("chat_template", PromptType.TEMPLATE.value)
                 if template_prompt:
-                    ui.label('Edit Chat Template').classes('text-lg font-bold')
-                    ui.label(template_prompt["description"]).classes('text-md text-gray-500')
-                    ui.label('This is a Jinja2 template for formatting chat messages').classes('text-sm text-gray-500')
-                    template_textarea = ui.textarea(template_prompt["content"]).classes('w-full h-64 font-mono').props('wrap="word"')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button('Save', on_click=partial(save_prompt, "chat_template", PromptType.TEMPLATE.value, template_textarea)).props('color="primary"')
-                        ui.button('Reset to Default', on_click=partial(reset_prompt, "chat_template", PromptType.TEMPLATE.value, template_textarea)).props('outline color="grey"')
+                    with ui.column().classes('gap-2 w-full'):
+                        ui.label('Edit Chat Template').classes('text-lg font-bold')
+                        ui.label(template_prompt["description"]).classes('text-md text-gray-500')
+                        ui.label('This is a Jinja2 template for formatting chat messages').classes('text-sm text-gray-500')
+                        template_textarea = ui.textarea(value=template_prompt["content"])\
+                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
+                            .props('wrap="soft" auto-grow')
+                        
+                        with ui.row().classes('gap-2'):
+                            ui.button('Save', on_click=partial(save_prompt, "chat_template", PromptType.TEMPLATE.value, template_textarea))\
+                                .props('color="primary"')
+                            ui.button('Reset to Default', on_click=partial(reset_prompt, "chat_template", PromptType.TEMPLATE.value, template_textarea))\
+                                .props('outline color="grey"')
     
     # Rest of your UI components...

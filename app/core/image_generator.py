@@ -1,8 +1,9 @@
 import os
 import uuid
+import aiohttp
 from app.utils.config import Config
 from app.utils.logger import Logger
-from runware import Runware, IImageInference, IPromptEnhance, RunwareAPIError
+from runware import Runware, IImageInference, RunwareAPIError
 import asyncio
 
 class ImageGenerator:
@@ -10,6 +11,8 @@ class ImageGenerator:
         self.config = Config()
         self.logger = Logger()
         self.runware = None
+        self.images_dir = os.path.join("data", "images")
+        os.makedirs(self.images_dir, exist_ok=True)
 
     async def _ensure_connection(self) -> bool:
         """Ensure we have a valid connection to Runware"""
@@ -18,7 +21,7 @@ class ImageGenerator:
                 self.runware = Runware(api_key=self.config.get("image_generation", "runware_api_key"))
                 await self.runware.connect()
                 return True
-            elif not self.runware.is_connected():
+            elif not self.runware.connected:
                 await self.runware.connect()
                 return True
             return True
@@ -26,6 +29,27 @@ class ImageGenerator:
             self.logger.error(f"Error connecting to Runware: {str(e)}")
             self.runware = None
             return False
+
+    async def _download_image(self, image_url: str) -> str:
+        """Download an image from a URL and save it locally"""
+        try:
+            # Generate a unique filename
+            filename = f"{uuid.uuid4()}.png"
+            local_path = os.path.join(self.images_dir, filename)
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url) as response:
+                    if response.status == 200:
+                        with open(local_path, 'wb') as f:
+                            f.write(await response.read())
+                        self.logger.info(f"Image saved to {local_path}")
+                        return local_path
+                    else:
+                        self.logger.error(f"Failed to download image: HTTP {response.status}")
+                        return None
+        except Exception as e:
+            self.logger.error(f"Error downloading image: {str(e)}")
+            return None
 
     async def generate(self, prompt: str, negative_prompt: str = None) -> str:
         """Generate an image from a prompt"""
@@ -35,12 +59,17 @@ class ImageGenerator:
         while retry_count < max_retries:
             try:
                 # Get configuration
-                model = self.config.get("image_generation", "model", "civitai:112902@351306")
-                width = self.config.get("image_generation", "width", 1024)
-                height = self.config.get("image_generation", "height", 1024)
-                steps = self.config.get("image_generation", "steps", 30)
-                cfg_scale = self.config.get("image_generation", "cfg_scale", 7.0)
-                sampler = self.config.get("image_generation", "sampler", "DPM++ 2M Karras")
+                model = self.config.get("image_generation", "model")
+                width = self.config.get("image_generation", "width")
+                height = self.config.get("image_generation", "height")
+                number_results = self.config.get("image_generation", "number_results")
+                output_format = self.config.get("image_generation", "output_format")
+                steps = self.config.get("image_generation", "steps")
+                cfg_scale = self.config.get("image_generation", "cfg_scale")
+                scheduler = self.config.get("image_generation", "scheduler")
+                output_type = self.config.get("image_generation", "output_type")
+                include_cost = self.config.get("image_generation", "include_cost")
+                lora = self.config.get("image_generation", "lora")
                 
                 # Ensure connection
                 if not await self._ensure_connection():
@@ -51,21 +80,34 @@ class ImageGenerator:
                 image_request = IImageInference(
                     positivePrompt=prompt,
                     negativePrompt=negative_prompt,
+                    model=model,
                     width=width,
                     height=height,
+                    numberResults=number_results,
+                    outputFormat=output_format,
                     steps=steps,
-                #    cfgScale=cfg_scale,
-                #    sampler=sampler
+                    CFGScale=cfg_scale,
+                    scheduler=scheduler,
+                    outputType=output_type,
+                    includeCost=include_cost,
+                    lora=lora
                 )
                 
                 self.logger.debug(f"Generating image with prompt: {prompt}")
                 self.logger.debug(f"Using model: {model}")
                 
-                result = await self.runware.imageInference(imageInference=image_request)
+                result = await self.runware.imageInference(image_request)
                 if result and result.images and len(result.images) > 0:
                     image_url = result.images[0].url
-                    self.logger.info(f"Image generated successfully: {image_url}")
-                    return image_url
+                    # Download and save the image locally
+                    local_path = await self._download_image(image_url)
+                    if local_path:
+                        self.logger.info(f"Image generated and saved successfully: {local_path}")
+                        return image_url  # Still return the URL for immediate display
+                    else:
+                        self.logger.error("Failed to save image locally")
+                        retry_count += 1
+                        continue
                 else:
                     self.logger.error("No image URL in response")
                     retry_count += 1
@@ -88,12 +130,17 @@ class ImageGenerator:
                 return []
 
             # Get configuration
-            model = self.config.get("image_generation", "model", "civitai:112902@351306")
-            width = self.config.get("image_generation", "width", 1024)
-            height = self.config.get("image_generation", "height", 1024)
-            steps = self.config.get("image_generation", "steps", 30)
-            cfg_scale = self.config.get("image_generation", "cfg_scale", 7.0)
-            sampler = self.config.get("image_generation", "sampler", "DPM++ 2M Karras")
+            model = self.config.get("image_generation", "model")
+            width = self.config.get("image_generation", "width")
+            height = self.config.get("image_generation", "height")
+            number_results = self.config.get("image_generation", "number_results")
+            output_format = self.config.get("image_generation", "output_format")
+            steps = self.config.get("image_generation", "steps")
+            cfg_scale = self.config.get("image_generation", "cfg_scale")
+            scheduler = self.config.get("image_generation", "scheduler")
+            output_type = self.config.get("image_generation", "output_type")
+            include_cost = self.config.get("image_generation", "include_cost")
+            lora = self.config.get("image_generation", "lora")
 
             # Create image requests for each prompt
             requests = []
@@ -101,17 +148,23 @@ class ImageGenerator:
                 image_request = IImageInference(
                     positivePrompt=prompt,
                     negativePrompt=negative_prompt,
+                    model=model,
                     width=width,
                     height=height,
+                    numberResults=number_results,
+                    outputFormat=output_format,
                     steps=steps,
-                #    cfgScale=cfg_scale,
-                #    sampler=sampler
+                    CFGScale=cfg_scale,
+                    scheduler=scheduler,
+                    outputType=output_type,
+                    includeCost=include_cost,
+                    lora=lora
                 )
                 requests.append(image_request)
 
             # Execute all image generation requests in parallel
             results = await asyncio.gather(
-                *[self.runware.imageInference(imageInference=req) for req in requests],
+                *[self.runware.imageInference(req) for req in requests],
                 return_exceptions=True
             )
 
@@ -122,8 +175,14 @@ class ImageGenerator:
                     self.logger.error(f"Error generating image {i+1}: {str(result)}")
                     continue
                 if result and result.images and len(result.images) > 0:
-                    image_urls.append(result.images[0].url)
-                    self.logger.info(f"Generated image {i+1}: {result.images[0].url}")
+                    image_url = result.images[0].url
+                    # Download and save the image locally
+                    local_path = await self._download_image(image_url)
+                    if local_path:
+                        self.logger.info(f"Generated and saved image {i+1}: {local_path}")
+                        image_urls.append(image_url)  # Still return the URL for immediate display
+                    else:
+                        self.logger.error(f"Failed to save image {i+1} locally")
 
             return image_urls
 

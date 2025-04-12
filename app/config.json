@@ -27,16 +27,27 @@
         "use_streaming": false,
         
         "parser_provider": "openrouter",
-        "parser_model": "mistralai/mistral-nemo"
+        "parser_model": "mistralai/mistral-small-24b-instruct-2501"
     },
     "image_generation": {
-        "model": "civitai:112902@351306",
-        "height": 1024,
-        "width": 1024,
+        "model": "civitai:443821@1478064",
+        "width": 832,
+        "height": 1216,
         "number_results": 1,
-        "stability_api_key": "",
-        "runware_api_base": "https://api.runware.ai/v1",
+        "output_format": "JPEG",
+        "steps": 30,
+        "cfg_scale": 6,
+        "scheduler": "Default",
+        "output_type": ["URL"],
+        "include_cost": false,
+        "lora": [
+            {
+                "model": "civitai:1115064@1253021",
+                "weight": 1
+            }
+        ],
         "runware_api_key": "",
+        "runware_api_base": "https://api.runware.ai/v1",
         "use_prompt_enhancement": false
     }
 }

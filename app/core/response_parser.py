@@ -123,7 +123,15 @@ class ResponseParser:
 
     @staticmethod
     def _get_parser_system_prompt() -> str:
-        return """You are a structured JSON parser designed to extract tagged content from AI-generated dialogue.
+        """Get the parser system prompt from the database"""
+        prompt_manager = PromptManager()
+        parser_data = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
+        
+        if parser_data:
+            return parser_data["content"]
+        else:
+            # Fallback to default if not in database
+            return """You are a structured JSON parser designed to extract tagged content from AI-generated dialogue.
 Your job is to detect and transform any <thought>, <image>, and <mood> tags into structured JSON outputs.
 
 Strictly follow these rules:
@@ -152,10 +160,10 @@ Nyx's default description (if no override is set):
 
 ✅ Return **only valid JSON** in the following format:
 {
+  "main_text": "The cleaned response with all tags removed",
   "thoughts": ["thought1", "thought2"],
   "images": ["parsed image prompt1", "parsed image prompt2"],
   "mood": "parsed mood or null"
 }
 
-No extra commentary, no code blocks. Return only the raw JSON object.
-"""
+No extra commentary, no code blocks. Return only the raw JSON object."""
