@@ -124,30 +124,30 @@ class ChatPipeline:
         # Parse the response for image scenes
         parsed_scenes = self.image_scene_parser.parse_images(response_text, current_appearance_text)
         
-        if not parsed_scenes or not parsed_scenes.get("images"):
+        if not parsed_scenes or len(parsed_scenes) == 0:
             self.logger.warning("No image scenes found in response")
             return []
         
         # Generate images for each scene
         image_results = []
-        for i, image_prompt in enumerate(parsed_scenes["images"]):
-            self.logger.info(f"Generating image for: {image_prompt[:50]}...")
+        for i, scene in enumerate(parsed_scenes):
+            self.logger.info(f"Generating image for: {scene[:50]}...")
             try:
-                image_url = await self.image_generator.generate(image_prompt)
+                image_url = await self.image_generator.generate(scene)
                 if image_url:
                     # Store both the URL and the original description
                     image_results.append({
                         "url": image_url,
-                        "description": image_prompt,
+                        "description": scene,
                         "id": f"img_{int(time.time())}_{i}"  # Unique ID for reference
                     })
                     self.logger.info(f"Generated image: {image_url}")
                 else:
                     # Image generation might be happening in the background, so create a placeholder
-                    self.logger.warning(f"Image generation queued or failed for: {image_prompt[:50]}...")
+                    self.logger.warning(f"Image generation queued or failed for: {scene[:50]}...")
                     image_results.append({
                         "url": "/assets/images/generating.png",  # Create a placeholder image for "generating"
-                        "description": image_prompt,
+                        "description": scene,
                         "id": f"img_{int(time.time())}_{i}",
                         "pending": True
                     })

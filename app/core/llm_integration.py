@@ -82,11 +82,12 @@ class LLMIntegration:
                 "stop": ["<end_of_turn>"]
             }
 
-    def build_system_message(self, mood=None, relevant_memories=None):
-        """Build the system message with mood and memories"""
+    def build_system_message(self, mood=None, relevant_memories=None, current_appearance=None):
+        """Build the system message with mood, memories and appearance"""
         system_prompt = PromptBuilder.build_system_message(
             relevant_memories=relevant_memories,
-            current_mood=mood
+            current_mood=mood,
+            current_appearance=current_appearance
         )
         
         return {

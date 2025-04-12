@@ -120,7 +120,7 @@ def content() -> None:
                             try:
                                 response = await chat_pipeline.process_message(current_message)
                                 
-                                # Display assistant response
+                                # Display assistant response with original formatting
                                 with chat_box:
                                     # Create a message container for text and related images
                                     with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
@@ -128,12 +128,11 @@ def content() -> None:
                                         ui.markdown(response['text']).classes('text-white')
                                         
                                         # Display any thoughts in a subtle way
-                                        if response.get("thoughts") and len(response["thoughts"]) > 0:
+                                        if response.get("thoughts"):
                                             ui.separator().classes('my-2')
                                             with ui.expansion('THOUGHTS', icon='psychology').classes('w-full'):
                                                 for thought in response["thoughts"]:
                                                     ui.markdown(f"*{thought}*").classes('text-gray-300 text-sm italic pl-4')
-                                                    # Update the thoughts display with the most recent thought
                                                     thoughts_display.content = thought
                                         
                                         # Display mood update
@@ -141,6 +140,15 @@ def content() -> None:
                                             ui.separator().classes('my-2')
                                             with ui.expansion('MOOD', icon='mood').classes('w-full'):
                                                 ui.markdown(f"*{response['mood']}*").classes('text-blue-300 text-sm italic pl-4')
+                                                mood_display.content = response["mood"]
+                                        
+                                        # Display any self actions (appearance updates)
+                                        if response.get("self"):
+                                            ui.separator().classes('my-2')
+                                            with ui.expansion('APPEARANCE', icon='face').classes('w-full'):
+                                                for self_action in response["self"]:
+                                                    ui.markdown(f"*{self_action}*").classes('text-purple-300 text-sm italic pl-4')
+                                                    appearance_display.content = self_action
                                         
                                         # Add Visualize button for on-demand image generation
                                         ui.separator().classes('my-2')
@@ -149,67 +157,35 @@ def content() -> None:
                                                 .props('color=purple').classes('mr-2')
                                             
                                             async def visualize_response():
-                                                # Show loading state
                                                 visualize_button.props('loading')
-                                                
                                                 try:
                                                     # Generate images for the response
                                                     images = await chat_pipeline.generate_images(response['text'])
                                                     
-                                                    if images:
+                                                    if images and len(images) > 0:  # Check both that images exists and has items
                                                         # Display generated images
                                                         with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
                                                             with ui.row().classes('flex-wrap gap-2 w-full'):
                                                                 for image_data in images:
-                                                                    with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                                                        img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                                                        img.on('click', lambda d=image_data: show_image_details(d))
-                                                                        
-                                                                        with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                                            short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
-                                                                            ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                                            ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
-                                                                                .props('flat dense round').classes('text-xs')
+                                                                    if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
+                                                                        with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                                            img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                                                            img.on('click', lambda d=image_data: show_image_details(d))
+                                                                            
+                                                                            with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                                                short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
+                                                                                ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                                                ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
+                                                                                    .props('flat dense round').classes('text-xs')
                                                     else:
                                                         ui.notify('No visual scenes found in the response', color='warning')
                                                 except Exception as e:
-                                                    ui.notify(f'Error generating images: {str(e)}', color='negative')
+                                                    ui.notify(f'Failed to generate images: {str(e)}', color='negative', timeout=5000)
+                                                    print(f"Image generation error: {str(e)}")  # Log the full error
                                                 finally:
-                                                    # Reset button state
-                                                    visualize_button.props('')
+                                                    visualize_button.props('loading=false')
                                             
                                             visualize_button.on('click', visualize_response)
-                                        
-                                        # Display any self actions (appearance updates)
-                                        if response.get("self") and len(response["self"]) > 0:
-                                            ui.separator().classes('my-2')
-                                            with ui.expansion('APPEARANCE', icon='face').classes('w-full'):
-                                                for self_action in response["self"]:
-                                                    ui.markdown(f"*{self_action}*").classes('text-purple-300 text-sm italic pl-4')
-                                        
-                                        # Display any generated images right below the text
-                                        if response.get("images") and len(response["images"]) > 0:
-                                            ui.separator().classes('my-2')
-                                            ui.label("Generated images:").classes('text-xs text-blue-300 mb-1')
-                                            
-                                            with ui.row().classes('flex-wrap gap-2 w-full'):
-                                                for idx, image_data in enumerate(response["images"]):
-                                                    # Create a container for each image and its controls
-                                                    with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                                        # Display the image
-                                                        img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                                        img.on('click', lambda d=image_data: show_image_details(d))
-                                                        
-                                                        # Image caption with preview option
-                                                        with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                            short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
-                                                            ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                            ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
-                                                                .props('flat dense round').classes('text-xs')
-                                
-                                # Update mood display if provided
-                                if response.get("mood"):
-                                    mood_display.content = response["mood"]
                                 
                                 # Update appearance display if provided
                                 if response.get("self") and len(response["self"]) > 0:

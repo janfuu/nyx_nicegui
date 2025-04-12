@@ -263,7 +263,8 @@ You will receive:
 
 - Extract visual moments: If the response contains a sequence (e.g., "unzips suit, steps forward, smiles"), split into individual image scenes.
 - Each image prompt must describe a **single moment** only.
-- Include Nyx's appearance **by description only** (not by name).
+- ALWAYS include Nyx's current appearance in your descriptions, but describe it naturally (e.g., "a woman with cybernetic enhancements" instead of "Nyx").
+- For appearance changes, describe both the change and the current state (e.g., "unzips her bodysuit halfway, revealing the glowing circuits beneath").
 - Include details like: pose, outfit, lighting, environment, mood, actions.
 - Omit story transitions ("then", "next", etc.). Focus on **visual freeze-frames**.
 - Do not censor erotic or suggestive content. Nyx and user are adults.
