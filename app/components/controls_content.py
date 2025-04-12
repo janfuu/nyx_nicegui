@@ -224,6 +224,152 @@ def view_logs():
     
     logs_dialog.open()
 
+def test_image_generator_parser():
+    """Test the image generator and response parser together"""
+    test_dialog = ui.dialog()
+    with test_dialog:
+        with ui.card().classes('w-full max-w-3xl'):
+            ui.markdown("### Image Generator & Parser Test")
+            
+            # Test input area
+            test_input = ui.textarea(
+                label="Test Response with Tags",
+                placeholder="Enter a response with <image>, <thought>, <mood>, and <self> tags",
+                value="""Hello! Let me show you something interesting.
+
+<image>A futuristic cityscape at sunset, with flying cars and holographic advertisements, cyberpunk style, digital art, high detail</image>
+
+<thought>I wonder if they'll like this view of the future</thought>
+
+<mood>excited</mood>
+
+<self>Adjusts her holographic interface with a graceful gesture</self>
+
+What do you think about this vision of the future?"""
+            ).classes('w-full h-48')
+            
+            # Results area
+            results_area = ui.scroll_area().classes('h-96 w-full')
+            
+            # Function to display image details - copied from home_content.py
+            def show_image_details(image_data):
+                details_dialog = ui.dialog()
+                with details_dialog:
+                    with ui.card().classes('w-full max-w-3xl'):
+                        ui.label('Image Details').classes('text-xl font-bold mb-2')
+                        ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
+                        ui.label('Original Prompt:').classes('font-bold')
+                        ui.textarea(value=image_data["description"]).classes('w-full bg-gray-800 border-none').props('readonly')
+                        ui.button('Close', on_click=details_dialog.close).classes('self-end')
+                details_dialog.open()
+            
+            async def run_test():
+                from app.core.response_parser import ResponseParser
+                from app.core.image_generator import ImageGenerator
+                from app.models.prompt_models import PromptManager, PromptType
+                
+                # Reset parser prompt to latest version
+                prompt_manager = PromptManager()
+                prompt_manager.reset_to_default("response_parser", PromptType.PARSER.value)
+                
+                # Clear previous results
+                results_area.clear()
+                
+                # Parse the response
+                with results_area:
+                    parsed_result = ResponseParser.parse_response(test_input.value)
+                    
+                    # Display raw response
+                    ui.markdown("### Raw Response")
+                    with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+                        ui.textarea(value=test_input.value).classes('w-full bg-gray-800 border-none').props('readonly')
+                    
+                    # Display parsed data
+                    ui.markdown("### Parsed Data")
+                    with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+                        ui.textarea(value=json.dumps(parsed_result, indent=2, ensure_ascii=False)).classes('w-full bg-gray-800 border-none').props('readonly')
+                    
+                    # Display main text
+                    if parsed_result.get("main_text"):
+                        ui.markdown("### Main Text")
+                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+                            ui.markdown(str(parsed_result["main_text"]))
+                    
+                    # Display thoughts
+                    if parsed_result.get("thoughts"):
+                        ui.markdown("### Thoughts")
+                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+                            for thought in parsed_result["thoughts"]:
+                                ui.markdown(f"*{str(thought)}*").classes('text-gray-300 italic')
+                                if thought != parsed_result["thoughts"][-1]:  # Don't add separator after last thought
+                                    ui.separator().classes('my-2')
+                    
+                    # Display mood
+                    if parsed_result.get("mood"):
+                        ui.markdown("### Mood")
+                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+                            ui.markdown(f"**Current Mood:** {str(parsed_result['mood'])}").classes('text-blue-300')
+                    
+                    # Display self actions
+                    if parsed_result.get("self"):
+                        ui.markdown("### Self Actions")
+                        with ui.card().classes('w-full p-3 mb-4 bg-gray-800'):
+                            ui.textarea(value=parsed_result["self"]).classes('w-full bg-gray-800 border-none').props('readonly')
+                    
+                    # If images were found, generate them
+                    if parsed_result.get("images"):
+                        ui.markdown("### Generated Images")
+                        image_generator = ImageGenerator()
+                        
+                        with ui.row().classes('flex-wrap gap-2 w-full'):
+                            for i, image_prompt in enumerate(parsed_result["images"]):
+                                # Create a container for each image and its controls
+                                with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                    # Show loading state initially
+                                    loading_container = ui.element('div').classes('w-full h-[180px] flex items-center justify-center')
+                                    with loading_container:
+                                        ui.spinner('dots').classes('text-4xl')
+                                    
+                                    try:
+                                        image_url = await image_generator.generate(image_prompt)
+                                        if image_url:
+                                            # Create image data structure like in home_content.py
+                                            image_data = {
+                                                "url": image_url,
+                                                "description": image_prompt,
+                                                "id": f"img_{i}"
+                                            }
+                                            
+                                            # Clear loading container and show image
+                                            loading_container.clear()
+                                            img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                            img.on('click', lambda d=image_data: show_image_details(d))
+                                            
+                                            # Image caption with preview option
+                                            with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                # Show a shorter version of the prompt without the score prefix
+                                                display_prompt = image_prompt.split(", ", 3)[-1] if ", " in image_prompt else image_prompt
+                                                short_desc = display_prompt[:30] + ("..." if len(display_prompt) > 30 else "")
+                                                ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
+                                                    .props('flat dense round').classes('text-xs')
+                                        else:
+                                            loading_container.clear()
+                                            with loading_container:
+                                                ui.label('Failed to generate image').classes('text-red-500 text-sm')
+                                    except Exception as e:
+                                        loading_container.clear()
+                                        with loading_container:
+                                            ui.label(f"Error: {str(e)}").classes('text-red-500 text-sm')
+                    else:
+                        ui.markdown("No images found in parsed response")
+            
+            # Test button
+            ui.button('Run Test', on_click=run_test).classes('mt-2')
+            ui.button('Close', on_click=test_dialog.close).classes('mt-2')
+    
+    test_dialog.open()
+
 def content() -> None:
     prompt_manager = PromptManager()
     memory_system = MemorySystem()
@@ -245,6 +391,15 @@ def content() -> None:
         with ui.column().classes('gap-1 w-full'):
             ui.button('View Logs', on_click=view_logs).props('color="info"')
             ui.button('Clear Logs', on_click=lambda: ui.notify("Not implemented yet")).props('outline')
+
+    ui.separator()
+    
+    # Image Generator & Parser Test Section
+    with ui.card().classes('w-full'):
+        ui.markdown("**Image Generator & Parser Test**")
+        
+        with ui.column().classes('gap-1 w-full'):
+            ui.button('Test Image Generator & Parser', on_click=test_image_generator_parser).props('color="primary"')
 
     ui.separator()
     

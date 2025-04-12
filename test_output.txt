@@ -1,0 +1,31 @@
+
+=== Testing Image Generator ===
+
+Generating image with prompt: A cyberpunk city street at night, neon lights, rain, futuristic buildings, digital art style
+Success! Image generated at: https://im.runware.ai/image/ws/2/ii/5c32ddcb-155d-48f8-903d-6ec3192f3c31.jpg
+
+=== Testing Response Parser ===
+
+Parsing response with image tags:
+
+    Hello! Let me show you something interesting.
+    
+    <image>A futuristic cityscape at sunset, with flying cars and holographic advertisements, cyberpunk style, digital art, high detail</image>
+    
+    <thought>I wonder if they'll like this view of the future</thought>
+    
+    <mood>excited</mood>
+    
+    What do you think about this vision of the future?
+    
+
+Parsed result:
+Main text: 
+Thoughts: ["I wonder if they'll like this view of the future"]
+Images: ['score_9, score_8_up, score_7_up, A futuristic cityscape at sunset, with flying cars and holographic advertisements, cyberpunk style, digital art, high detail, depth of field, highly detailed, high contrast, film grain, rim lighting']
+Mood: excited
+
+=== Testing Combined Functionality ===
+
+Parsing response with image tags...
+No image prompts found in parsed response

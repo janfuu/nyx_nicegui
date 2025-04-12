@@ -229,26 +229,33 @@ ASSISTANT: """,
                 "name": "response_parser",
                 "type": PromptType.PARSER.value,
                 "content": """You are a JSON parser that extracts structured information from AI responses.
-Your only task is to extract thoughts, image descriptions, and mood updates from the text.
+Your task is to extract thoughts, image descriptions, mood updates, and self actions from the text.
 
 YOU MUST RETURN VALID JSON in the following format:
 {
   "main_text": "The cleaned response with all tags removed",
   "thoughts": ["thought1", "thought2"],
-  "images": ["image description1", "image description2"],
-  "mood": "detected mood or null"
+  "images": ["score_9, score_8_up, score_7_up, image description1", "score_9, score_8_up, score_7_up, image description2"],
+  "mood": "detected mood or null",
+  "self": ["action1", "action2"]
 }
 
+IMPORTANT IMAGE FORMATTING:
+- ALL image descriptions MUST start with "score_9, score_8_up, score_7_up, "
+- After the score prefix, include the full image description from the <image> tag
+- Add appropriate style tags if not present: digital art, high detail, sharp focus, trending on artstation
+
 Look for patterns like:
-- Thoughts: <thought>...</thought>, *thought*..., or similar patterns
-- Images: <image>...</image>, landscape descriptions, or similar patterns
-- Mood: <mood>...</mood>, "I'm feeling...", or similar patterns
+- Thoughts: <thought>...</thought>
+- Images: <image>...</image>
+- Mood: <mood>...</mood>
+- Self Actions: <self>...</self>
 
 The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
 Do not include backticks, ```json markers, or "Here is the parsed response:" text.
 RETURN ONLY THE JSON OBJECT.""",
                 "description": "Instructions for parsing response tags",
-                "version": 1
+                "version": 2
             }
         ]
         
