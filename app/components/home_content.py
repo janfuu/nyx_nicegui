@@ -14,10 +14,19 @@ def content() -> None:
                 ui.image('assets/images/portrait.jpg').classes('w-full rounded-xl')
                 
                 # Character's current mood display
-                mood_display = ui.textarea(value="It's... unusual to be addressed so familiarly...").props('readonly auto-grow')\
-                    .classes('bg-[#1a1a1a] rounded p-2 text-sm w-full')
-                
-                mood_label = ui.label('mood').classes('text-blue-500')
+                ui.label('MOOD').classes('text-blue-500 text-sm')
+                with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
+                    mood_display = ui.markdown("Neutral").classes('text-sm')
+
+                # Character's current appearance display
+                ui.label('APPEARANCE').classes('text-purple-500 text-sm')
+                with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
+                    appearance_display = ui.markdown("A young woman with cybernetic enhancements, circuits glowing faintly beneath her skin...").classes('text-sm')
+
+                # Character's thoughts display
+                ui.label('THOUGHTS').classes('text-gray-500 text-sm')
+                with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
+                    thoughts_display = ui.markdown("It's... unusual to be addressed so familiarly...").classes('text-sm')
 
         # Center Card
         with ui.card().classes('flex-2 w-[800px]'):
@@ -79,9 +88,24 @@ def content() -> None:
                                         # Display any thoughts in a subtle way
                                         if response.get("thoughts") and len(response["thoughts"]) > 0:
                                             ui.separator().classes('my-2')
-                                            with ui.expansion('Thoughts', icon='psychology').classes('w-full'):
+                                            with ui.expansion('THOUGHTS', icon='psychology').classes('w-full'):
                                                 for thought in response["thoughts"]:
                                                     ui.markdown(f"*{thought}*").classes('text-gray-300 text-sm italic pl-4')
+                                                    # Update the thoughts display with the most recent thought
+                                                    thoughts_display.content = thought
+                                        
+                                        # Display mood update
+                                        if response.get("mood"):
+                                            ui.separator().classes('my-2')
+                                            with ui.expansion('MOOD', icon='mood').classes('w-full'):
+                                                ui.markdown(f"*{response['mood']}*").classes('text-blue-300 text-sm italic pl-4')
+                                        
+                                        # Display any self actions (appearance updates)
+                                        if response.get("self") and len(response["self"]) > 0:
+                                            ui.separator().classes('my-2')
+                                            with ui.expansion('APPEARANCE', icon='face').classes('w-full'):
+                                                for self_action in response["self"]:
+                                                    ui.markdown(f"*{self_action}*").classes('text-purple-300 text-sm italic pl-4')
                                         
                                         # Display any generated images right below the text
                                         if response.get("images") and len(response["images"]) > 0:
@@ -105,8 +129,11 @@ def content() -> None:
                                 
                                 # Update mood display if provided
                                 if response.get("mood"):
-                                    mood_display.value = response["mood"]
-                                    mood_label.text = "current mood"
+                                    mood_display.content = response["mood"]
+                                
+                                # Update appearance display if provided
+                                if response.get("self") and len(response["self"]) > 0:
+                                    appearance_display.content = response["self"][-1]  # Show the most recent appearance update
                                     
                             except Exception as e:
                                 # Handle errors

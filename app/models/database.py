@@ -70,6 +70,16 @@ class Database:
         )
         ''')
         
+        # Create appearance table for storing Nyx's appearance descriptions
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS appearance (
+            id INTEGER PRIMARY KEY,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            description TEXT NOT NULL,
+            source TEXT DEFAULT 'self_tag'
+        )
+        ''')
+        
         # Create prompts table with version support
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS prompts (

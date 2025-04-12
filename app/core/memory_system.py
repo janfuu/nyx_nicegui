@@ -215,6 +215,33 @@ class MemorySystem:
                    for mood, intensity, timestamp in results]
         return emotions
 
+    def add_appearance(self, description):
+        """Add an appearance description from a self tag"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "INSERT INTO appearance (description) VALUES (?)",
+            (description,)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+    def get_recent_appearances(self, limit=10):
+        """Get recent appearance descriptions"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT description, timestamp FROM appearance ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        )
+        
+        results = cursor.fetchall()
+        appearances = [{"description": desc, "timestamp": timestamp} 
+                      for desc, timestamp in results]
+        return appearances
+
     def initialize_tables(self):
         """Initialize database tables"""
         conn = self.db.get_connection()
@@ -256,6 +283,14 @@ class MemorySystem:
             entity TEXT NOT NULL,
             parameter TEXT NOT NULL,
             value TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS appearance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            description TEXT NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
         ''')

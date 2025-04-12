@@ -95,6 +95,13 @@ class ChatPipeline:
             self.memory_system.update_mood(parsed_content["mood"])
             self.logger.debug(f"Updated mood to: {parsed_content['mood']}")
         
+        # Process self tags (appearance descriptions)
+        if parsed_content.get("self"):
+            self.logger.info(f"Extracted {len(parsed_content['self'])} self actions")
+            for self_action in parsed_content["self"]:
+                self.memory_system.add_appearance(self_action)
+                self.logger.debug(f"Added appearance: {self_action[:50]}...")
+        
         # Process image generation with descriptions
         image_results = []
         for i, image_prompt in enumerate(parsed_content.get("images", [])):
