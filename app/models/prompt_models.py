@@ -7,7 +7,8 @@ class PromptType(Enum):
     PERSONALITY = "personality"
     APPEARANCE = "appearance"
     INSTRUCTIONS = "instructions"
-    PARSER = "parser"
+    IMAGE_PARSER = "image_parser"
+    RESPONSE_PARSER = "response_parser"
     TEMPLATE = "template"
 
 class PromptManager:
@@ -211,7 +212,7 @@ For images:
             },
             {
                 "name": "response_parser",
-                "type": PromptType.PARSER.value,
+                "type": PromptType.RESPONSE_PARSER.value,
                 "content": """You are a JSON parser that extracts structured information from AI responses.
 Your task is to extract thoughts, mood changes, and appearance updates from the text.
 
@@ -248,7 +249,7 @@ RETURN ONLY THE JSON OBJECT.""",
             },
             {
                 "name": "image_scene_parser",
-                "type": PromptType.PARSER.value,
+                "type": PromptType.IMAGE_PARSER.value,
                 "content": """You are a visual parser for AI-generated character responses.
 
 Your task is to extract 1–5 individual image prompts from a dialogue response. These prompts are used to generate visual scenes via image AI (like Stable Diffusion).

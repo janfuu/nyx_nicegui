@@ -42,7 +42,7 @@ class ImageSceneParser:
 
             # Construct system prompt
             prompt_manager = PromptManager()
-            parser_data = prompt_manager.get_prompt("image_scene_parser", PromptType.PARSER.value)
+            parser_data = prompt_manager.get_prompt("image_scene_parser", PromptType.IMAGE_PARSER.value)
             system_prompt = parser_data["content"] if parser_data else ImageSceneParser._default_prompt()
 
             if current_appearance:

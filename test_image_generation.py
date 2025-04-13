@@ -129,8 +129,8 @@ async def main():
     """Run all tests"""
     # Reset parser prompts to latest version
     prompt_manager = PromptManager()
-    prompt_manager.reset_to_default("response_parser", PromptType.PARSER.value)
-    prompt_manager.reset_to_default("image_scene_parser", PromptType.PARSER.value)
+    prompt_manager.reset_to_default("response_parser", PromptType.RESPONSE_PARSER.value)
+    prompt_manager.reset_to_default("image_scene_parser", PromptType.IMAGE_PARSER.value)
     
     await test_image_generator()
     await test_response_parser()

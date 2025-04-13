@@ -128,7 +128,7 @@ class ResponseParser:
     def _get_parser_system_prompt(current_appearance=None) -> str:
         """Get the parser system prompt from the database"""
         prompt_manager = PromptManager()
-        parser_data = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
+        parser_data = prompt_manager.get_prompt("response_parser", PromptType.RESPONSE_PARSER.value)
         
         if parser_data:
             base_prompt = parser_data["content"]

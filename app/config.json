@@ -40,6 +40,8 @@
         "scheduler": "Default",
         "output_type": ["URL"],
         "include_cost": false,
+        "prompt_weighting": "compel",
+        "default_negative_prompt": "score_6, score_5, score_4, text, censored, deformed, bad hand",
         "lora": [
             {
                 "model": "civitai:1115064@1253021",

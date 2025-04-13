@@ -5,6 +5,7 @@ from app.utils.config import Config
 from app.utils.logger import Logger
 from runware import Runware, IImageInference, RunwareAPIError
 import asyncio
+from runware.types import ILora
 
 class ImageGenerator:
     def __init__(self):
@@ -65,6 +66,12 @@ class ImageGenerator:
             scheduler = self.config.get("image_generation", "scheduler")
             output_type = self.config.get("image_generation", "output_type")
             include_cost = self.config.get("image_generation", "include_cost")
+            prompt_weighting = self.config.get("image_generation", "prompt_weighting")
+            lora_configs = self.config.get("image_generation", "lora")
+            
+            # Use default negative prompt if none provided
+            if negative_prompt is None:
+                negative_prompt = self.config.get("image_generation", "default_negative_prompt")
             
             # Build base request parameters
             request_params = {
@@ -78,11 +85,16 @@ class ImageGenerator:
                 'CFGScale': cfg_scale,
                 'scheduler': scheduler,
                 'outputType': output_type,
-                'includeCost': include_cost
+                'includeCost': include_cost,
+                'promptWeighting': prompt_weighting
             }
             
             if negative_prompt:
                 request_params['negativePrompt'] = negative_prompt
+                
+            # Add LoRA configurations if present
+            if lora_configs and len(lora_configs) > 0:
+                request_params['lora'] = [ILora(model=lora["model"], weight=lora["weight"]) for lora in lora_configs]
             
             # Create the image request
             image_request = IImageInference(**request_params)

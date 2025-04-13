@@ -1,0 +1,31 @@
+[
+    {
+      "taskType": "imageInference",
+      "taskUUID": "f6f4fef4-fe76-4c54-9319-b0e4101ee87f",
+      "positivePrompt": "score_9, score_8_up, score_7_up, score_6_up,\ncybernetic nude woman, glowing circuitry, tight collar, cuffs, knees apart, submissive posture, big breasts, violet eyes,\nkneeling, hands behind back, mouth slightly open, gold choker,\nempty dark studio, spotlight, high contrast lighting, NSFW:2.0, hyperdetailed:3.5, cinematiclora\n\n\n\n\n",
+      "negativePrompt": "score_6, score_5, score_4, text, censored, deformed, bad hand",
+      "model": "civitai:443821@1478064",
+      "width": 832,
+      "height": 1216,
+      "numberResults": 3,
+      "outputFormat": "JPEG",
+      "steps": 29,
+      "CFGScale": 7,
+      "scheduler": "Default",
+      "outputType": [
+        "URL"
+      ],
+      "includeCost": true,
+      "promptWeighting": "compel",
+      "lora": [
+        {
+          "model": "civitai:601723@672567",
+          "weight": 0.5
+        },
+        {
+          "model": "civitai:927305@1439429",
+          "weight": 0.2
+        }
+      ]
+    }
+  ]

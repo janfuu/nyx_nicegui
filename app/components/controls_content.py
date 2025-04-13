@@ -244,6 +244,18 @@ def test_image_generator_parser():
         # Results area
         results_container = ui.column().classes('w-full')
         
+        # Function to display image details
+        def show_image_details(image_data):
+            dialog = ui.dialog()
+            with dialog:
+                with ui.card().classes('w-full max-w-3xl'):
+                    ui.label('Image Details').classes('text-xl font-bold mb-2')
+                    ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
+                    ui.label('Original Prompt:').classes('font-bold')
+                    ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
+                    ui.button('Close', on_click=dialog.close)
+            dialog.open()
+        
         async def generate_images(scenes):
             """Generate images for each scene"""
             with results_container:
@@ -254,9 +266,15 @@ def test_image_generator_parser():
                             # Generate image
                             image_url = await image_generator.generate(scene)
                             if image_url:
-                                with ui.card().classes('w-[300px]'):
-                                    ui.image(image_url).classes('w-full')
-                                    ui.label(scene).classes('text-xs text-gray-400')
+                                with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                    img = ui.image(image_url).classes('w-full rounded-lg cursor-pointer')
+                                    img.on('click', lambda d={"url": image_url, "description": scene}: show_image_details(d))
+                                    
+                                    with ui.row().classes('items-center justify-between w-full mt-1'):
+                                        short_desc = scene[:30] + ("..." if len(scene) > 30 else "")
+                                        ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                        ui.button(icon='search', on_click=lambda d={"url": image_url, "description": scene}: show_image_details(d))\
+                                            .props('flat dense round').classes('text-xs')
                         except Exception as e:
                             ui.notify(f"Error generating image: {str(e)}", color='negative')
         
@@ -428,7 +446,7 @@ def content() -> None:
                 with ui.tab_panels(parser_tabs, value=image_parser_tab).classes('w-full'):
                     # Image Scene Parser Panel
                     with ui.tab_panel(image_parser_tab):
-                        image_parser_prompt = prompt_manager.get_prompt("image_scene_parser", PromptType.PARSER.value)
+                        image_parser_prompt = prompt_manager.get_prompt("image_scene_parser", PromptType.IMAGE_PARSER.value)
                         if image_parser_prompt:
                             with ui.column().classes('gap-2 w-full'):
                                 ui.label('Edit Image Scene Parser').classes('text-lg font-bold')
@@ -439,14 +457,14 @@ def content() -> None:
                                     .props('wrap="soft" auto-grow')
                                 
                                 with ui.row().classes('gap-2'):
-                                    ui.button('Save', on_click=partial(save_prompt, "image_scene_parser", PromptType.PARSER.value, image_parser_textarea))\
+                                    ui.button('Save', on_click=partial(save_prompt, "image_scene_parser", PromptType.IMAGE_PARSER.value, image_parser_textarea))\
                                         .props('color="primary"')
-                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "image_scene_parser", PromptType.PARSER.value, image_parser_textarea))\
+                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "image_scene_parser", PromptType.IMAGE_PARSER.value, image_parser_textarea))\
                                         .props('outline color="grey"')
                     
                     # Response Parser Panel
                     with ui.tab_panel(response_parser_tab):
-                        response_parser_prompt = prompt_manager.get_prompt("response_parser", PromptType.PARSER.value)
+                        response_parser_prompt = prompt_manager.get_prompt("response_parser", PromptType.RESPONSE_PARSER.value)
                         if response_parser_prompt:
                             with ui.column().classes('gap-2 w-full'):
                                 ui.label('Edit Response Parser').classes('text-lg font-bold')
@@ -457,9 +475,9 @@ def content() -> None:
                                     .props('wrap="soft" auto-grow')
                                 
                                 with ui.row().classes('gap-2'):
-                                    ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.PARSER.value, response_parser_textarea))\
+                                    ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.RESPONSE_PARSER.value, response_parser_textarea))\
                                         .props('color="primary"')
-                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.PARSER.value, response_parser_textarea))\
+                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.RESPONSE_PARSER.value, response_parser_textarea))\
                                         .props('outline color="grey"')
             
             # Template Panel
