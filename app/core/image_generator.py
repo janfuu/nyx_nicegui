@@ -52,8 +52,13 @@ class ImageGenerator:
             self.logger.error(f"Error downloading image: {str(e)}")
             return None
 
-    async def generate(self, prompt: str, negative_prompt: str = None) -> str:
-        """Generate an image from a prompt"""
+    async def generate(self, prompt: str | dict, negative_prompt: str = None) -> str:
+        """Generate an image from a prompt
+        
+        Args:
+            prompt: Either a string prompt or a dict with 'content' and 'sequence' keys
+            negative_prompt: Optional negative prompt to use
+        """
         try:
             # Get configuration
             model = self.config.get("image_generation", "model")
@@ -68,14 +73,27 @@ class ImageGenerator:
             include_cost = self.config.get("image_generation", "include_cost")
             prompt_weighting = self.config.get("image_generation", "prompt_weighting")
             lora_configs = self.config.get("image_generation", "lora")
+            prompt_pre = self.config.get("image_generation", "prompt_pre", "")
+            prompt_post = self.config.get("image_generation", "prompt_post", "")
             
             # Use default negative prompt if none provided
             if negative_prompt is None:
                 negative_prompt = self.config.get("image_generation", "default_negative_prompt")
             
+            # Extract prompt content and sequence if it's a dict
+            sequence = None
+            if isinstance(prompt, dict):
+                prompt_content = prompt.get("content", "")
+                sequence = prompt.get("sequence")
+            else:
+                prompt_content = prompt
+            
+            # Build the final prompt with prefix and suffix
+            final_prompt = f"{prompt_pre} {prompt_content} {prompt_post}".strip()
+            
             # Build base request parameters
             request_params = {
-                'positivePrompt': prompt,
+                'positivePrompt': final_prompt,
                 'model': model,
                 'width': width,
                 'height': height,
@@ -103,7 +121,7 @@ class ImageGenerator:
             if not await self._ensure_connection():
                 return None
             
-            self.logger.debug(f"Generating image with prompt: {prompt}")
+            self.logger.debug(f"Generating image with prompt: {final_prompt}")
             
             # Get the images
             images = await self.runware.imageInference(image_request)

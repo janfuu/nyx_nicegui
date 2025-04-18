@@ -21,6 +21,14 @@ class ChatPipeline:
         self.config = Config()
         self.logger = Logger()
     
+    @staticmethod
+    def _extract_image_tags(text: str) -> list[dict]:
+        """Extract the content of all <image> tags from the text with sequence numbers"""
+        import re
+        pattern = r'<image>(.*?)</image>'
+        matches = re.findall(pattern, text, re.DOTALL)
+        return [{"content": match.strip(), "sequence": i+1} for i, match in enumerate(matches)]
+
     async def process_message(self, user_message):
         """Process a user message and generate a response"""
         self.logger.info(f"Processing message: {user_message[:50]}...")
@@ -105,53 +113,60 @@ class ChatPipeline:
                 self.memory_system.add_appearance(self_action)
                 self.logger.debug(f"Added appearance: {self_action[:50]}...")
         
-        # Return the response without images (they will be generated on demand)
+        # Step 7: Generate images automatically if image tags are present
+        self.logger.debug("Step 7: Checking for image tags and generating images")
+        generated_images = []
+        image_tags = self._extract_image_tags(llm_response)
+        if image_tags:
+            # Get current appearance and mood for context
+            current_appearance = self.memory_system.get_recent_appearances(1)
+            current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+            current_mood = self.memory_system.get_current_mood()
+            
+            # Format image contents with context and sequence
+            image_context = {
+                "appearance": current_appearance_text,
+                "mood": current_mood,
+                "images": [{"content": tag["content"], "sequence": tag["sequence"]} for tag in image_tags]
+            }
+            
+            # Process all image tags together through the LLM-based image parser
+            self.logger.info(f"Processing {len(image_tags)} image tags through image parser")
+            try:
+                # Use the image scene parser to generate the final image prompts
+                parsed_scenes = self.image_scene_parser.parse_images(
+                    json.dumps(image_context),
+                    current_appearance=current_appearance_text
+                )
+                
+                if parsed_scenes:
+                    # Generate images for each parsed scene
+                    for i, scene in enumerate(parsed_scenes):
+                        image_url = await self.image_generator.generate(scene)
+                        if image_url:
+                            # Find the original sequence number for this scene
+                            sequence = image_tags[i]["sequence"] if i < len(image_tags) else i + 1
+                            generated_images.append({
+                                "url": image_url,
+                                "description": scene,
+                                "id": f"img_{int(time.time())}_{i}",
+                                "sequence": sequence
+                            })
+                            self.logger.info(f"Generated image {sequence}: {image_url}")
+                        else:
+                            self.logger.warning(f"Image generation failed for: {scene[:50]}...")
+            except Exception as e:
+                self.logger.error(f"Error processing image content: {str(e)}")
+            
+            # Sort images by sequence number
+            generated_images.sort(key=lambda x: x["sequence"])
+            self.logger.info(f"Generated {len(generated_images)} images automatically")
+        
+        # Return the response with images if they were generated
         self.logger.info("Message processing complete")
         return {
             "text": llm_response,  # Return original response text
             "thoughts": parsed_content.get("thoughts", []),
-            "mood": parsed_content.get("mood")
+            "mood": parsed_content.get("mood"),
+            "images": generated_images if generated_images else None
         }
-    
-    async def generate_images(self, response_text):
-        """Generate images from a response text on demand"""
-        self.logger.info("Starting on-demand image generation")
-        
-        # Get current appearance for context
-        current_appearance = self.memory_system.get_recent_appearances(1)
-        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
-        
-        # Parse the response for image scenes
-        parsed_scenes = self.image_scene_parser.parse_images(response_text, current_appearance_text)
-        
-        if not parsed_scenes or len(parsed_scenes) == 0:
-            self.logger.warning("No image scenes found in response")
-            return []
-        
-        # Generate images for each scene
-        image_results = []
-        for i, scene in enumerate(parsed_scenes):
-            self.logger.info(f"Generating image for: {scene[:50]}...")
-            try:
-                image_url = await self.image_generator.generate(scene)
-                if image_url:
-                    # Store both the URL and the original description
-                    image_results.append({
-                        "url": image_url,
-                        "description": scene,
-                        "id": f"img_{int(time.time())}_{i}"  # Unique ID for reference
-                    })
-                    self.logger.info(f"Generated image: {image_url}")
-                else:
-                    # Image generation might be happening in the background, so create a placeholder
-                    self.logger.warning(f"Image generation queued or failed for: {scene[:50]}...")
-                    image_results.append({
-                        "url": "/assets/images/generating.png",  # Create a placeholder image for "generating"
-                        "description": scene,
-                        "id": f"img_{int(time.time())}_{i}",
-                        "pending": True
-                    })
-            except Exception as e:
-                self.logger.error(f"Error generating image: {str(e)}")
-        
-        return image_results

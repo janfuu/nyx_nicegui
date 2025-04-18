@@ -31,21 +31,40 @@
     },
     "image_generation": {
         "model": "civitai:443821@1478064",
-        "width": 832,
-        "height": 1216,
+        "width": 896,
+        "height": 1152,
         "number_results": 1,
-        "output_format": "JPEG",
+        "output_format": "JPG",
         "steps": 30,
-        "cfg_scale": 6,
+        "cfg_scale": 7.0,
+        "clipSkip": 0,
         "scheduler": "Default",
         "output_type": ["URL"],
         "include_cost": false,
-        "prompt_weighting": "compel",
-        "default_negative_prompt": "score_6, score_5, score_4, text, censored, deformed, bad hand",
+        "prompt_weighting": "sdEmbeds",
+        "default_negative_prompt": "score_6, score_5, score_4, text, censored, deformed, bad hand, watermark",
+        "prompt_pre": "Photo of goth girl",
+        "prompt_post": "Expressiveh",
         "lora": [
             {
-                "model": "civitai:1115064@1253021",
-                "weight": 1
+                "model": "civitai:122359@135867",
+                "weight": 1.0
+            },
+            {
+                "model": "civitai:411536@458702",
+                "weight": 0.6
+            },
+            {
+                "model": "civitai:341353@382152",
+                "weight": 0.5
+            },
+            {
+                "model": "civitai:248965@461295",
+                "weight": 0.9
+            },
+            {
+                "model": "civitai:411088@1356474",
+                "weight": 0.5
             }
         ],
         "runware_api_key": "",

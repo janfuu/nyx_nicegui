@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from app.core.image_scene_parser import ImageSceneParser
 from app.core.image_generator import ImageGenerator
+import asyncio
 
 def save_prompt(name, type_value, text_area):
     prompt_manager = PromptManager()
@@ -248,35 +249,129 @@ def test_image_generator_parser():
         def show_image_details(image_data):
             dialog = ui.dialog()
             with dialog:
-                with ui.card().classes('w-full max-w-3xl'):
+                with ui.card().classes('w-full max-w-5xl'):
                     ui.label('Image Details').classes('text-xl font-bold mb-2')
-                    ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
-                    ui.label('Original Prompt:').classes('font-bold')
+                    
+                    # Image container with zoom controls
+                    with ui.column().classes('w-full'):
+                        # Zoom controls
+                        with ui.row().classes('justify-between w-full mb-2'):
+                            ui.label('Zoom:').classes('text-sm')
+                            zoom_slider = ui.slider(min=0.5, max=2, value=1, step=0.1)\
+                                .classes('w-48')
+                        
+                        # Image container with scroll
+                        with ui.scroll_area().classes('w-full h-[80vh] border rounded-lg'):
+                            # Display image at native size (896x1152)
+                            img = ui.image(image_data["url"])\
+                                .classes('rounded-lg cursor-pointer transition-transform duration-200')\
+                                .style('width: 896px; height: 1152px;')
+                            
+                            # Update image size based on zoom
+                            def update_zoom(e):
+                                scale = e.value
+                                img.style(f'width: {int(896 * scale)}px; height: {int(1152 * scale)}px;')
+                            
+                            zoom_slider.on_value_change(update_zoom)
+                    
+                    # Image details
+                    ui.label('Original Prompt:').classes('font-bold mt-4')
                     ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
                     ui.button('Close', on_click=dialog.close)
             dialog.open()
         
         async def generate_images(scenes):
-            """Generate images for each scene"""
+            """Generate images for each scene in parallel"""
             with results_container:
-                ui.label("Generated Images:").classes('text-lg font-bold')
-                with ui.row().classes('flex-wrap gap-4'):
+                ui.label('Parsed Scenes').classes('text-h6 q-mt-md')
+                for scene in scenes:
+                    with ui.card().classes('q-mb-sm q-pa-sm bg-dark'):
+                        ui.label(scene['content'] if isinstance(scene, dict) else scene).classes('text-body2')
+                
+                ui.separator()
+                
+                # Then start image generation
+                ui.label('Generated Images').classes('text-h6 q-mt-md')
+                with ui.row().classes('q-gutter-md'):
+                    # Create a list to store image generation tasks
+                    tasks = []
                     for scene in scenes:
                         try:
-                            # Generate image
-                            image_url = await image_generator.generate(scene)
-                            if image_url:
-                                with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                    img = ui.image(image_url).classes('w-full rounded-lg cursor-pointer')
-                                    img.on('click', lambda d={"url": image_url, "description": scene}: show_image_details(d))
-                                    
-                                    with ui.row().classes('items-center justify-between w-full mt-1'):
-                                        short_desc = scene[:30] + ("..." if len(scene) > 30 else "")
-                                        ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                        ui.button(icon='search', on_click=lambda d={"url": image_url, "description": scene}: show_image_details(d))\
-                                            .props('flat dense round').classes('text-xs')
+                            # Extract content from scene dictionary
+                            if isinstance(scene, dict) and 'content' in scene:
+                                scene_content = scene['content']
+                            else:
+                                scene_content = scene
+                                
+                            # Create a card for each image
+                            with ui.card().classes('q-pa-xs'):
+                                # Add loading indicator
+                                loading = ui.spinner('default', size='xl').props('color=primary')
+                                
+                                # Create image element (initially hidden)
+                                img = ui.image().props('fit=cover').style('width: 180px; height: 180px')
+                                img.visible = False
+                                
+                                # Create description row
+                                with ui.row().classes('items-center justify-between q-mt-xs'):
+                                    desc = scene_content[:30] + "..." if len(scene_content) > 30 else scene_content
+                                    ui.label(desc).classes('text-caption text-grey-5 ellipsis')
+                                    search_btn = ui.button(icon='search').props('flat round dense')
+                                    search_btn.visible = False
+                                
+                                # Add the generation task
+                                tasks.append({
+                                    'scene': scene_content,
+                                    'loading': loading,
+                                    'img': img,
+                                    'search_btn': search_btn
+                                })
                         except Exception as e:
-                            ui.notify(f"Error generating image: {str(e)}", color='negative')
+                            print(f"Error setting up image generation for scene: {scene}")
+                            print(f"Error details: {str(e)}")
+                            ui.notify(f"Error setting up image generation: {str(e)}", type='negative')
+                    
+                    # Extract all scene contents for parallel generation
+                    scene_contents = [task['scene'] for task in tasks]
+                    
+                    try:
+                        # Generate all images in parallel
+                        print(f"Generating {len(scene_contents)} images in parallel...")
+                        # Force UI update before starting generation
+                        await ui.run_javascript('void 0')
+                        
+                        image_urls = await image_generator.generate_parallel(scene_contents)
+                        
+                        # Update UI for each generated image
+                        for i, (task, image_url) in enumerate(zip(tasks, image_urls)):
+                            if image_url:
+                                print(f"Successfully generated image {i+1}: {image_url}")
+                                # Hide loading, show image and search button
+                                task['loading'].visible = False
+                                task['img'].set_source(image_url)
+                                task['img'].visible = True
+                                task['search_btn'].visible = True
+                                
+                                # Setup click handlers
+                                def show_details(url=image_url, scene=task['scene']):
+                                    show_image_details({
+                                        "url": url,
+                                        "description": scene
+                                    })
+                                
+                                task['img'].on('click', show_details)
+                                task['search_btn'].on('click', show_details)
+                                
+                                # Force UI update after each image
+                                await ui.run_javascript('void 0')
+                            else:
+                                # Show error state
+                                task['loading'].visible = False
+                                ui.label('Generation failed').classes('text-caption text-negative')
+                                ui.notify(f"Failed to generate image {i+1}", type='negative')
+                    except Exception as e:
+                        print(f"Error in parallel generation: {str(e)}")
+                        ui.notify(f"Error generating images: {str(e)}", type='negative')
         
         async def run_test(e):
             """Run the test with the current input"""
@@ -284,10 +379,28 @@ def test_image_generator_parser():
                 # Get current appearance from memory system
                 current_appearance = memory_system.get_recent_appearances(1)
                 current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+                current_mood = memory_system.get_current_mood()
                 
-                # Parse the input for visual scenes
+                # Extract image tags from input
+                import re
+                image_pattern = r'<image>(.*?)</image>'
+                image_tags = re.findall(image_pattern, test_input.value, re.DOTALL)
+                
+                if not image_tags:
+                    with results_container:
+                        ui.label("No <image> tags found in the input").classes('text-gray-400')
+                    return
+                
+                # Format image contents with context and sequence
+                image_context = {
+                    "appearance": current_appearance_text,
+                    "mood": current_mood,
+                    "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
+                }
+                
+                # Process through image parser
                 parsed_scenes = image_scene_parser.parse_images(
-                    test_input.value,
+                    json.dumps(image_context),
                     current_appearance=current_appearance_text
                 )
                 
@@ -308,8 +421,15 @@ def test_image_generator_parser():
                 else:
                     with results_container:
                         ui.label("No visual scenes found in the input").classes('text-gray-400')
+                        # Log the input and context for debugging
+                        print(f"Input text: {test_input.value}")
+                        print(f"Image context: {json.dumps(image_context, indent=2)}")
+                        print(f"Parsed scenes: {parsed_scenes}")
             except Exception as e:
                 ui.notify(f"Error: {str(e)}", color='negative')
+                print(f"Full error: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
         
         # Run test button
         ui.button('Run Test', on_click=run_test).props('icon=play_arrow color=purple')

@@ -77,10 +77,33 @@ def content() -> None:
                 def show_image_details(image_data):
                     dialog = ui.dialog()
                     with dialog:
-                        with ui.card().classes('w-full max-w-3xl'):
+                        with ui.card().classes('w-full max-w-5xl'):
                             ui.label('Image Details').classes('text-xl font-bold mb-2')
-                            ui.image(image_data["url"]).classes('w-full rounded-lg mb-4')
-                            ui.label('Original Prompt:').classes('font-bold')
+                            
+                            # Image container with zoom controls
+                            with ui.column().classes('w-full'):
+                                # Zoom controls
+                                with ui.row().classes('justify-between w-full mb-2'):
+                                    ui.label('Zoom:').classes('text-sm')
+                                    zoom_slider = ui.slider(min=0.5, max=2, value=1, step=0.1)\
+                                        .classes('w-48')
+                                
+                                # Image container with scroll
+                                with ui.scroll_area().classes('w-full h-[80vh] border rounded-lg'):
+                                    # Display image at native size (896x1152)
+                                    img = ui.image(image_data["url"])\
+                                        .classes('rounded-lg cursor-pointer transition-transform duration-200')\
+                                        .style('width: 896px; height: 1152px;')
+                                    
+                                    # Update image size based on zoom
+                                    def update_zoom(e):
+                                        scale = e.value
+                                        img.style(f'width: {int(896 * scale)}px; height: {int(1152 * scale)}px;')
+                                    
+                                    zoom_slider.on_value_change(update_zoom)
+                            
+                            # Image details
+                            ui.label('Original Prompt:').classes('font-bold mt-4')
                             ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
                             
                             with ui.row().classes('justify-between w-full'):
@@ -149,6 +172,23 @@ def content() -> None:
                                                 for self_action in response["self"]:
                                                     ui.markdown(f"*{self_action}*").classes('text-purple-300 text-sm italic pl-4')
                                                     appearance_display.content = self_action
+                                        
+                                        # Display generated images if present
+                                        if response.get("images") and len(response["images"]) > 0:
+                                            ui.separator().classes('my-2')
+                                            with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
+                                                with ui.row().classes('flex-wrap gap-2 w-full'):
+                                                    for image_data in response["images"]:
+                                                        if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
+                                                            with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                                img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
+                                                                img.on('click', lambda d=image_data: show_image_details(d))
+                                                                
+                                                                with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                                    short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
+                                                                    ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                                    ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
+                                                                        .props('flat dense round').classes('text-xs')
                                         
                                         # Add Visualize button for on-demand image generation
                                         ui.separator().classes('my-2')

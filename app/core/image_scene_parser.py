@@ -48,9 +48,22 @@ class ImageSceneParser:
             if current_appearance:
                 system_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}"
 
+            # Parse the input JSON if it's a JSON string
+            try:
+                input_data = json.loads(response_text)
+                if isinstance(input_data, dict) and "images" in input_data:
+                    # Extract sequence information
+                    sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
+                    # Join all image contents
+                    image_text = "\n".join([f"Image {seq}: {img['content']}" for seq, img in zip(sequences, input_data["images"])])
+                else:
+                    image_text = response_text
+            except json.JSONDecodeError:
+                image_text = response_text
+
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"{response_text}"}
+                {"role": "user", "content": f"{image_text}"}
             ]
 
             endpoint = f"{api_base}/chat/completions"
@@ -80,6 +93,11 @@ class ImageSceneParser:
                 if not isinstance(images, list):
                     logger.error(f"Images is not a list: {images}")
                     return None
+                
+                # If we have sequence information, preserve it
+                if isinstance(input_data, dict) and "images" in input_data:
+                    sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
+                    images = [{"content": img, "sequence": seq} for img, seq in zip(images, sequences)]
                 
                 logger.info("Successfully parsed image scenes")
                 return images
