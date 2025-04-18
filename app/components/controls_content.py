@@ -1,4 +1,4 @@
-from nicegui import ui, app
+from nicegui import ui, app, events
 from app.models.prompt_models import PromptManager, PromptType
 from app.core.memory_system import MemorySystem
 from app.core.prompt_builder import PromptBuilder
@@ -9,6 +9,36 @@ from pathlib import Path
 from app.core.image_scene_parser import ImageSceneParser
 from app.core.image_generator import ImageGenerator
 import asyncio
+from typing import List
+
+class Lightbox:
+    """A thumbnail gallery where each image can be clicked to enlarge."""
+    def __init__(self) -> None:
+        with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
+            ui.keyboard(self._handle_key)
+            self.large_image = ui.image().props('no-spinner fit=scale-down')
+        self.image_list: List[str] = []
+
+    def add_image(self, thumb_url: str, orig_url: str) -> ui.image:
+        """Place a thumbnail image in the UI and make it clickable to enlarge."""
+        self.image_list.append(orig_url)
+        with ui.button(on_click=lambda: self._open(orig_url)).props('flat dense square'):
+            return ui.image(thumb_url)
+
+    def _handle_key(self, event_args: events.KeyEventArguments) -> None:
+        if not event_args.action.keydown:
+            return
+        if event_args.key.escape:
+            self.dialog.close()
+        image_index = self.image_list.index(self.large_image.source)
+        if event_args.key.arrow_left and image_index > 0:
+            self._open(self.image_list[image_index - 1])
+        if event_args.key.arrow_right and image_index < len(self.image_list) - 1:
+            self._open(self.image_list[image_index + 1])
+
+    def _open(self, url: str) -> None:
+        self.large_image.set_source(url)
+        self.dialog.open()
 
 def save_prompt(name, type_value, text_area):
     prompt_manager = PromptManager()
@@ -233,6 +263,7 @@ def test_image_generator_parser():
     memory_system = MemorySystem()
     image_scene_parser = ImageSceneParser()
     image_generator = ImageGenerator()
+    lightbox = Lightbox()
     
     with ui.card().classes('w-full p-4'):
         ui.label('Test Image Generation').classes('text-xl font-bold mb-4')
@@ -244,41 +275,6 @@ def test_image_generator_parser():
         
         # Results area
         results_container = ui.column().classes('w-full')
-        
-        # Function to display image details
-        def show_image_details(image_data):
-            dialog = ui.dialog()
-            with dialog:
-                with ui.card().classes('w-full max-w-5xl'):
-                    ui.label('Image Details').classes('text-xl font-bold mb-2')
-                    
-                    # Image container with zoom controls
-                    with ui.column().classes('w-full'):
-                        # Zoom controls
-                        with ui.row().classes('justify-between w-full mb-2'):
-                            ui.label('Zoom:').classes('text-sm')
-                            zoom_slider = ui.slider(min=0.5, max=2, value=1, step=0.1)\
-                                .classes('w-48')
-                        
-                        # Image container with scroll
-                        with ui.scroll_area().classes('w-full h-[80vh] border rounded-lg'):
-                            # Display image at native size (896x1152)
-                            img = ui.image(image_data["url"])\
-                                .classes('rounded-lg cursor-pointer transition-transform duration-200')\
-                                .style('width: 896px; height: 1152px;')
-                            
-                            # Update image size based on zoom
-                            def update_zoom(e):
-                                scale = e.value
-                                img.style(f'width: {int(896 * scale)}px; height: {int(1152 * scale)}px;')
-                            
-                            zoom_slider.on_value_change(update_zoom)
-                    
-                    # Image details
-                    ui.label('Original Prompt:').classes('font-bold mt-4')
-                    ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
-                    ui.button('Close', on_click=dialog.close)
-            dialog.open()
         
         async def generate_images(scenes):
             """Generate images for each scene in parallel"""
@@ -292,83 +288,62 @@ def test_image_generator_parser():
                 
                 # Then start image generation
                 ui.label('Generated Images').classes('text-h6 q-mt-md')
-                with ui.row().classes('q-gutter-md'):
+                with ui.row().classes('q-gutter-md flex-wrap'):
                     # Create a list to store image generation tasks
                     tasks = []
+                    containers = []
+                    lightbox = Lightbox()
+                    
+                    # First create all UI containers
                     for scene in scenes:
                         try:
-                            # Extract content from scene dictionary
-                            if isinstance(scene, dict) and 'content' in scene:
-                                scene_content = scene['content']
-                            else:
-                                scene_content = scene
-                                
+                            scene_content = scene['content'] if isinstance(scene, dict) else scene
+                            
                             # Create a card for each image
                             with ui.card().classes('q-pa-xs'):
-                                # Add loading indicator
                                 loading = ui.spinner('default', size='xl').props('color=primary')
+                                container = ui.button().props('flat dense').classes('w-[300px] h-[400px] overflow-hidden')
+                                with container:
+                                    img = ui.image().props('fit=cover').classes('w-full h-full')
+                                    img.visible = False
                                 
-                                # Create image element (initially hidden)
-                                img = ui.image().props('fit=cover').style('width: 180px; height: 180px')
-                                img.visible = False
-                                
-                                # Create description row
                                 with ui.row().classes('items-center justify-between q-mt-xs'):
                                     desc = scene_content[:30] + "..." if len(scene_content) > 30 else scene_content
                                     ui.label(desc).classes('text-caption text-grey-5 ellipsis')
-                                    search_btn = ui.button(icon='search').props('flat round dense')
-                                    search_btn.visible = False
                                 
-                                # Add the generation task
                                 tasks.append({
                                     'scene': scene_content,
                                     'loading': loading,
                                     'img': img,
-                                    'search_btn': search_btn
+                                    'button': container
                                 })
+                                containers.append(container)
                         except Exception as e:
                             print(f"Error setting up image generation for scene: {scene}")
                             print(f"Error details: {str(e)}")
                             ui.notify(f"Error setting up image generation: {str(e)}", type='negative')
                     
-                    # Extract all scene contents for parallel generation
-                    scene_contents = [task['scene'] for task in tasks]
-                    
                     try:
                         # Generate all images in parallel
+                        scene_contents = [task['scene'] for task in tasks]
                         print(f"Generating {len(scene_contents)} images in parallel...")
-                        # Force UI update before starting generation
-                        await ui.run_javascript('void 0')
                         
+                        # Generate all images at once
                         image_urls = await image_generator.generate_parallel(scene_contents)
                         
-                        # Update UI for each generated image
+                        # Update UI only once after all images are generated
                         for i, (task, image_url) in enumerate(zip(tasks, image_urls)):
                             if image_url:
                                 print(f"Successfully generated image {i+1}: {image_url}")
-                                # Hide loading, show image and search button
                                 task['loading'].visible = False
                                 task['img'].set_source(image_url)
                                 task['img'].visible = True
-                                task['search_btn'].visible = True
-                                
-                                # Setup click handlers
-                                def show_details(url=image_url, scene=task['scene']):
-                                    show_image_details({
-                                        "url": url,
-                                        "description": scene
-                                    })
-                                
-                                task['img'].on('click', show_details)
-                                task['search_btn'].on('click', show_details)
-                                
-                                # Force UI update after each image
-                                await ui.run_javascript('void 0')
+                                lightbox.image_list.append(image_url)
+                                task['button'].on('click', lambda url=image_url: lightbox._open(url))
                             else:
-                                # Show error state
                                 task['loading'].visible = False
                                 ui.label('Generation failed').classes('text-caption text-negative')
-                                ui.notify(f"Failed to generate image {i+1}", type='negative')
+                    
                     except Exception as e:
                         print(f"Error in parallel generation: {str(e)}")
                         ui.notify(f"Error generating images: {str(e)}", type='negative')
@@ -408,16 +383,7 @@ def test_image_generator_parser():
                 results_container.clear()
                 
                 if parsed_scenes and len(parsed_scenes) > 0:
-                    with results_container:
-                        ui.label("Parsed Scenes:").classes('text-lg font-bold')
-                        for scene in parsed_scenes:
-                            with ui.card().classes('w-full p-4 bg-gray-800'):
-                                ui.label(scene).classes('text-sm')
-                        
-                        ui.separator()
-                        
-                        # Generate images asynchronously
-                        await generate_images(parsed_scenes)
+                    await generate_images(parsed_scenes)
                 else:
                     with results_container:
                         ui.label("No visual scenes found in the input").classes('text-gray-400')
