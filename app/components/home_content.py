@@ -253,6 +253,8 @@ def content() -> None:
                                                     current_appearance = memory_system.get_recent_appearances(1)
                                                     current_appearance_text = current_appearance[0]["description"] if current_appearance else None
                                                     current_mood = memory_system.get_current_mood()
+                                                    current_location = memory_system.get_recent_locations(1)
+                                                    current_location_text = current_location[0]["description"] if current_location else None
                                                     
                                                     # Extract image tags from response
                                                     import re
@@ -267,6 +269,7 @@ def content() -> None:
                                                     image_context = {
                                                         "appearance": current_appearance_text,
                                                         "mood": current_mood,
+                                                        "location": current_location_text,
                                                         "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
                                                     }
                                                     

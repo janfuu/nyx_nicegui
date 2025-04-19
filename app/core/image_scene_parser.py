@@ -45,9 +45,6 @@ class ImageSceneParser:
             parser_data = prompt_manager.get_prompt("image_scene_parser", PromptType.IMAGE_PARSER.value)
             system_prompt = parser_data["content"] if parser_data else ImageSceneParser._default_prompt()
 
-            if current_appearance:
-                system_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}"
-
             logger.debug(f"System prompt for image parser:\n{system_prompt}")
 
             # Parse the input JSON if it's a JSON string
