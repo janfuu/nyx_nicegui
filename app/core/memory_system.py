@@ -212,7 +212,7 @@ class MemorySystem:
         return emotions
 
     def add_appearance(self, description):
-        """Add an appearance description from a self tag"""
+        """Add an appearance description to the database"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
@@ -239,10 +239,50 @@ class MemorySystem:
         return appearances
 
     def add_appearance_change(self, change: str):
+        """Add an appearance change to the list"""
         self.appearance_changes.append(change)
         
     def update_location(self, location: str):
+        """Update the current location"""
         self.location = location
+        
+    def add_location(self, description: str):
+        """Add a location description to the database"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "INSERT INTO locations (description) VALUES (?)",
+            (description,)
+        )
+        conn.commit()
+        return cursor.lastrowid
+        
+    def get_recent_locations(self, limit=10):
+        """Get recent location descriptions"""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT description, timestamp FROM locations ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        )
+        
+        results = cursor.fetchall()
+        locations = [{"description": desc, "timestamp": timestamp} 
+                    for desc, timestamp in results]
+        return locations
+
+    def restore_prompts_from_templates(self):
+        """Restore prompts from default templates"""
+        try:
+            prompt_manager = PromptManager()
+            # Force reinitialization of all prompts
+            prompt_manager.initialize_prompts(force=True)
+            return True
+        except Exception as e:
+            print(f"Error restoring prompts: {e}")
+            return False
 
     def initialize_tables(self):
         """Initialize database tables"""
@@ -291,6 +331,14 @@ class MemorySystem:
         
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS appearance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            description TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS locations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             description TEXT NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP

@@ -10,6 +10,7 @@ from app.core.image_scene_parser import ImageSceneParser
 from app.core.image_generator import ImageGenerator
 import asyncio
 from typing import List
+import yaml
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
@@ -60,26 +61,6 @@ class Lightbox:
         current_idx = self.image_list.index(url)
         self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
         self.dialog.open()
-
-def save_prompt(name, type_value, text_area):
-    prompt_manager = PromptManager()
-    success = prompt_manager.update_prompt(name, type_value, text_area.value)
-    if success:
-        ui.notify(f"Saved prompt: {name}")
-    else:
-        ui.notify(f"Error saving prompt: {name}", color="negative")
-
-def reset_prompt(name, type_value, text_area):
-    prompt_manager = PromptManager()
-    prompt_manager.reset_to_default(name, type_value)
-    
-    # Fetch the reset prompt
-    prompt = prompt_manager.get_prompt(name, type_value)
-    if prompt:
-        text_area.value = prompt["content"]
-        ui.notify(f"Reset prompt: {name}")
-    else:
-        ui.notify(f"Error resetting prompt: {name}", color="negative")
 
 def preview_system_prompt():
     """Generate and display a preview of the combined system prompt"""
@@ -175,8 +156,6 @@ def check_memory_tables():
         with ui.card().classes('w-full'):
             ui.markdown("### Database Tables")
             
-            # Get DB info - modify the memory_system to add a method that returns this info
-            # For now, we'll just show a placeholder
             with ui.scroll_area().classes('h-96 w-full'):
                 ui.markdown("""```sql
 -- Conversations Table
@@ -213,6 +192,20 @@ CREATE TABLE IF NOT EXISTS relationships (
     value TEXT NOT NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Appearance Table
+CREATE TABLE IF NOT EXISTS appearance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Locations Table
+CREATE TABLE IF NOT EXISTS locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```""")
             
             ui.button('Close', on_click=tables_dialog.close).classes('self-end')
@@ -228,6 +221,23 @@ def initialize_memory_system():
         ui.notify("Memory tables initialized successfully", color="positive")
     else:
         ui.notify("Error initializing memory tables", color="negative")
+
+def recover_memory_system():
+    """Recover the memory system by restoring prompts and reinitializing tables"""
+    memory_system = MemorySystem()
+    
+    # First restore prompts
+    if memory_system.restore_prompts_from_templates():
+        ui.notify("Prompts restored from templates", color="positive")
+    else:
+        ui.notify("Error restoring prompts", color="negative")
+        return
+    
+    # Then initialize tables
+    if memory_system.initialize_tables():
+        ui.notify("Memory system recovered successfully", color="positive")
+    else:
+        ui.notify("Error recovering memory system", color="negative")
 
 def view_logs():
     """Display logs in a dialog window"""
@@ -462,7 +472,55 @@ def content() -> None:
         with ui.column().classes('gap-1 w-full'):
             ui.button('Check Database Tables', on_click=check_memory_tables).props('outline')
             ui.button('Initialize Memory System', on_click=initialize_memory_system).props('color="primary"')
+            ui.button('Recover Memory System', on_click=recover_memory_system).props('color="warning"')
             ui.button('View Memory Data', on_click=display_memory_data).props('color="secondary"')
+
+    ui.separator()
+    
+    # Prompt File Management Section
+    with ui.card().classes('w-full'):
+        ui.markdown("**Prompt File Management**")
+        
+        with ui.column().classes('gap-1 w-full'):
+            # File selection dropdown
+            prompt_files = [f for f in Path('prompts').glob('*.yaml') if f.is_file()]
+            if not prompt_files:
+                ui.notify("No prompt files found in the prompts directory", color="warning")
+                return
+                
+            file_select = ui.select(
+                [str(file.name) for file in prompt_files],
+                value=str(prompt_files[0].name) if prompt_files else None,
+                label="Select Prompt File"
+            ).classes('w-full')
+            
+            # Preview area
+            preview_area = ui.scroll_area().classes('h-96 w-full font-mono')
+            
+            # Load and preview button
+            def load_and_preview():
+                if not file_select.value:
+                    ui.notify("No file selected", color="negative")
+                    return
+                
+                try:
+                    file_path = Path('prompts') / file_select.value
+                    if not file_path.exists():
+                        ui.notify(f"File {file_select.value} not found", color="negative")
+                        return
+                        
+                    with open(file_path, 'r') as f:
+                        content = f.read()
+                    
+                    with preview_area:
+                        preview_area.clear()
+                        ui.markdown(f"```yaml\n{content}\n```")
+                    
+                    ui.notify(f"Loaded {file_select.value}", color="positive")
+                except Exception as e:
+                    ui.notify(f"Error loading file: {str(e)}", color="negative")
+            
+            ui.button('View File', on_click=load_and_preview).props('color="primary"')
 
     ui.separator()
     
@@ -482,158 +540,3 @@ def content() -> None:
         
         with ui.column().classes('gap-1 w-full'):
             ui.button('Test Image Generator & Parser', on_click=test_image_generator_parser).props('color="primary"')
-
-    ui.separator()
-    
-    # Prompt Editor Section
-    with ui.card().classes('w-full'):
-        ui.markdown("**Prompt Editor**")
-        
-        # Add a preview button for the combined system prompt
-        with ui.row().classes('justify-end w-full'):
-            ui.button('Preview Combined System Prompt', on_click=preview_system_prompt).props('outline')
-        
-        # Create tabs for different prompt types
-        with ui.tabs().classes('w-full') as tabs:
-            system_tab = ui.tab('System')
-            personality_tab = ui.tab('Personality')
-            appearance_tab = ui.tab('Appearance')
-            instructions_tab = ui.tab('Instructions')
-            parser_tab = ui.tab('Parser')
-            template_tab = ui.tab('Template')
-        
-        with ui.tab_panels(tabs, value=system_tab).classes('w-full'):
-            # System Prompt Panel
-            with ui.tab_panel(system_tab):
-                system_prompt = prompt_manager.get_prompt("base_system", PromptType.SYSTEM.value)
-                if system_prompt:
-                    with ui.column().classes('gap-2 w-full'):
-                        ui.label('Edit System Prompt').classes('text-lg font-bold')
-                        ui.label(system_prompt["description"]).classes('text-md text-gray-500')
-                        ui.label('This defines the core identity of the AI').classes('text-sm text-gray-500')
-                        system_textarea = ui.textarea(value=system_prompt["content"])\
-                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                            .props('wrap="soft" auto-grow')
-                        
-                        with ui.row().classes('gap-2'):
-                            ui.button('Save', on_click=partial(save_prompt, "base_system", PromptType.SYSTEM.value, system_textarea))\
-                                .props('color="primary"')
-                            ui.button('Reset to Default', on_click=partial(reset_prompt, "base_system", PromptType.SYSTEM.value, system_textarea))\
-                                .props('outline color="grey"')
-            
-            # Personality Panel
-            with ui.tab_panel(personality_tab):
-                personality_prompt = prompt_manager.get_prompt("personality", PromptType.PERSONALITY.value)
-                if personality_prompt:
-                    with ui.column().classes('gap-2 w-full'):
-                        ui.label('Edit Personality').classes('text-lg font-bold')
-                        ui.label(personality_prompt["description"]).classes('text-md text-gray-500')
-                        ui.label('This defines behavioral traits and characteristics').classes('text-sm text-gray-500')
-                        personality_textarea = ui.textarea(value=personality_prompt["content"])\
-                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                            .props('wrap="soft" auto-grow')
-                        
-                        with ui.row().classes('gap-2'):
-                            ui.button('Save', on_click=partial(save_prompt, "personality", PromptType.PERSONALITY.value, personality_textarea))\
-                                .props('color="primary"')
-                            ui.button('Reset to Default', on_click=partial(reset_prompt, "personality", PromptType.PERSONALITY.value, personality_textarea))\
-                                .props('outline color="grey"')
-            
-            # Appearance Panel
-            with ui.tab_panel(appearance_tab):
-                appearance_prompt = prompt_manager.get_prompt("appearance", PromptType.APPEARANCE.value)
-                if appearance_prompt:
-                    with ui.column().classes('gap-2 w-full'):
-                        ui.label('Edit Appearance').classes('text-lg font-bold')
-                        ui.label(appearance_prompt["description"]).classes('text-md text-gray-500')
-                        ui.label('This defines how the AI visualizes itself').classes('text-sm text-gray-500')
-                        appearance_textarea = ui.textarea(value=appearance_prompt["content"])\
-                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                            .props('wrap="soft" auto-grow')
-                        
-                        with ui.row().classes('gap-2'):
-                            ui.button('Save', on_click=partial(save_prompt, "appearance", PromptType.APPEARANCE.value, appearance_textarea))\
-                                .props('color="primary"')
-                            ui.button('Reset to Default', on_click=partial(reset_prompt, "appearance", PromptType.APPEARANCE.value, appearance_textarea))\
-                                .props('outline color="grey"')
-            
-            # Instructions Panel
-            with ui.tab_panel(instructions_tab):
-                instructions_prompt = prompt_manager.get_prompt("instructions", PromptType.INSTRUCTIONS.value)
-                if instructions_prompt:
-                    with ui.column().classes('gap-2 w-full'):
-                        ui.label('Edit Instructions').classes('text-lg font-bold')
-                        ui.label(instructions_prompt["description"]).classes('text-md text-gray-500')
-                        ui.label('This defines special tags and formatting instructions').classes('text-sm text-gray-500')
-                        instructions_textarea = ui.textarea(value=instructions_prompt["content"])\
-                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                            .props('wrap="soft" auto-grow')
-                        
-                        with ui.row().classes('gap-2'):
-                            ui.button('Save', on_click=partial(save_prompt, "instructions", PromptType.INSTRUCTIONS.value, instructions_textarea))\
-                                .props('color="primary"')
-                            ui.button('Reset to Default', on_click=partial(reset_prompt, "instructions", PromptType.INSTRUCTIONS.value, instructions_textarea))\
-                                .props('outline color="grey"')
-            
-            # Parser Panel
-            with ui.tab_panel(parser_tab):
-                with ui.tabs().classes('w-full') as parser_tabs:
-                    image_parser_tab = ui.tab('Image Scene Parser')
-                    response_parser_tab = ui.tab('Response Parser')
-                
-                with ui.tab_panels(parser_tabs, value=image_parser_tab).classes('w-full'):
-                    # Image Scene Parser Panel
-                    with ui.tab_panel(image_parser_tab):
-                        image_parser_prompt = prompt_manager.get_prompt("image_scene_parser", PromptType.IMAGE_PARSER.value)
-                        if image_parser_prompt:
-                            with ui.column().classes('gap-2 w-full'):
-                                ui.label('Edit Image Scene Parser').classes('text-lg font-bold')
-                                ui.label(image_parser_prompt["description"]).classes('text-md text-gray-500')
-                                ui.label('This defines how to parse visual scenes from responses').classes('text-sm text-gray-500')
-                                image_parser_textarea = ui.textarea(value=image_parser_prompt["content"])\
-                                    .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                                    .props('wrap="soft" auto-grow')
-                                
-                                with ui.row().classes('gap-2'):
-                                    ui.button('Save', on_click=partial(save_prompt, "image_scene_parser", PromptType.IMAGE_PARSER.value, image_parser_textarea))\
-                                        .props('color="primary"')
-                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "image_scene_parser", PromptType.IMAGE_PARSER.value, image_parser_textarea))\
-                                        .props('outline color="grey"')
-                    
-                    # Response Parser Panel
-                    with ui.tab_panel(response_parser_tab):
-                        response_parser_prompt = prompt_manager.get_prompt("response_parser", PromptType.RESPONSE_PARSER.value)
-                        if response_parser_prompt:
-                            with ui.column().classes('gap-2 w-full'):
-                                ui.label('Edit Response Parser').classes('text-lg font-bold')
-                                ui.label(response_parser_prompt["description"]).classes('text-md text-gray-500')
-                                ui.label('This defines how to parse thoughts, mood, and appearance changes').classes('text-sm text-gray-500')
-                                response_parser_textarea = ui.textarea(value=response_parser_prompt["content"])\
-                                    .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                                    .props('wrap="soft" auto-grow')
-                                
-                                with ui.row().classes('gap-2'):
-                                    ui.button('Save', on_click=partial(save_prompt, "response_parser", PromptType.RESPONSE_PARSER.value, response_parser_textarea))\
-                                        .props('color="primary"')
-                                    ui.button('Reset to Default', on_click=partial(reset_prompt, "response_parser", PromptType.RESPONSE_PARSER.value, response_parser_textarea))\
-                                        .props('outline color="grey"')
-            
-            # Template Panel
-            with ui.tab_panel(template_tab):
-                template_prompt = prompt_manager.get_prompt("chat_template", PromptType.TEMPLATE.value)
-                if template_prompt:
-                    with ui.column().classes('gap-2 w-full'):
-                        ui.label('Edit Chat Template').classes('text-lg font-bold')
-                        ui.label(template_prompt["description"]).classes('text-md text-gray-500')
-                        ui.label('This is a Jinja2 template for formatting chat messages').classes('text-sm text-gray-500')
-                        template_textarea = ui.textarea(value=template_prompt["content"])\
-                            .classes('w-full h-96 font-mono text-sm bg-[#1a1a1a] text-white')\
-                            .props('wrap="soft" auto-grow')
-                        
-                        with ui.row().classes('gap-2'):
-                            ui.button('Save', on_click=partial(save_prompt, "chat_template", PromptType.TEMPLATE.value, template_textarea))\
-                                .props('color="primary"')
-                            ui.button('Reset to Default', on_click=partial(reset_prompt, "chat_template", PromptType.TEMPLATE.value, template_textarea))\
-                                .props('outline color="grey"')
-    
-    # Rest of your UI components...

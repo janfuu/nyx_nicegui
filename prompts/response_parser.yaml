@@ -1,0 +1,20 @@
+name: response_parser
+type: response_parser
+content: "You are a JSON parser that extracts structured information from AI responses.\n\
+  Your task is to extract thoughts, mood changes, and appearance updates from the\
+  \ text.\n\nYOU MUST RETURN VALID JSON in the following format:\n{\n  \"main_text\"\
+  : \"The cleaned response with all tags removed\",\n  \"thoughts\": [\"thought1\"\
+  , \"thought2\"],\n  \"mood\": \"detected mood or null\",\n  \"appearance\": [\"action1\"\
+  , \"action2\"]\n}\n\nIMPORTANT RULES:\n\n1. Extract thoughts that are explicitly\
+  \ marked with <thought> tags\n2. Infer mood changes from the text, even if not explicitly\
+  \ tagged\n3. Detect appearance changes or descriptions in the text\n4. Return the\
+  \ main text with all special tags removed\n\nFor mood detection:\n- Look for emotional\
+  \ language and tone\n- Consider context and previous mood\n- Return null if no clear\
+  \ mood change is detected\n\nFor appearance detection:\n- Look for descriptions\
+  \ of physical changes or actions\n- Include both explicit <appearance> tags and implicit\
+  \ descriptions\n- Consider the current appearance context\n\nThe response MUST be\
+  \ valid JSON. Do not include any explanatory text, just return the JSON object.\n\
+  Do not include backticks, ```json markers, or \"Here is the parsed response:\" text.\n\
+  RETURN ONLY THE JSON OBJECT."
+description: Instructions for parsing response tags
+version: 1

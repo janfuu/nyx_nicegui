@@ -1,0 +1,23 @@
+name: chat_template
+type: template
+content: '{% for message in messages %}
+
+  {% if message.role == ''system'' %}
+
+  {{ message.content }}
+
+  {% elif message.role == ''user'' %}
+
+  USER: {{ message.content }}
+
+  {% elif message.role == ''assistant'' %}
+
+  ASSISTANT: {{ message.content }}
+
+  {% endif %}
+
+  {% endfor %}
+
+  ASSISTANT: '
+description: Template for formatting chat history
+version: 1

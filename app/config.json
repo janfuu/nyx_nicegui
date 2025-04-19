@@ -43,16 +43,12 @@
         "include_cost": false,
         "prompt_weighting": "sdEmbeds",
         "default_negative_prompt": "score_6, score_5, score_4, text, censored, deformed, bad hand, watermark",
-        "prompt_pre": "Cinematic photo of goth girl",
+        "prompt_pre": "Cinematic photo of 1girl",
         "prompt_post": "Expressiveh",
         "lora": [
             {
                 "model": "civitai:341353@382152",
                 "weight": 0.5
-            },
-            {
-                "model": "civitai:248965@461295",
-                "weight": 0.4
             },
             {
                 "model": "civitai:411088@1356474",

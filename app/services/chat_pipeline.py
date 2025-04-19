@@ -171,10 +171,13 @@ class ChatPipeline:
                 current_appearance = self.memory_system.get_recent_appearances(1)
                 current_appearance_text = current_appearance[0]["description"] if current_appearance else None
                 current_mood = self.memory_system.get_current_mood()
+                current_location = self.memory_system.get_recent_locations(1)
+                current_location_text = current_location[0]["description"] if current_location else None
                 
                 image_context = {
                     "appearance": current_appearance_text,
                     "mood": current_mood,
+                    "location": current_location_text,
                     "images": [{"content": tag["content"], "sequence": tag["sequence"]} for tag in image_tags]
                 }
                 

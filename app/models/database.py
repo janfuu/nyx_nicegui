@@ -70,6 +70,15 @@ class Database:
         )
         ''')
         
+        # Create locations table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS locations (
+            id INTEGER PRIMARY KEY,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            description TEXT NOT NULL
+        )
+        ''')
+        
         # Create appearance table for storing Nyx's appearance descriptions
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS appearance (
