@@ -16,7 +16,20 @@ class Lightbox:
     def __init__(self) -> None:
         with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
             ui.keyboard(self._handle_key)
-            self.large_image = ui.image().props('no-spinner fit=scale-down')
+            with ui.row().classes('w-full h-full items-center justify-between'):
+                # Left arrow
+                with ui.button(on_click=lambda: self._navigate(-1)).props('flat round color=white').classes('ml-4'):
+                    ui.icon('chevron_left').classes('text-4xl')
+                
+                # Center container for image
+                with ui.column().classes('flex-grow items-center justify-center h-full'):
+                    self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-[90vh]')
+                    self.counter = ui.label().classes('mt-2 text-white')
+                
+                # Right arrow
+                with ui.button(on_click=lambda: self._navigate(1)).props('flat round color=white').classes('mr-4'):
+                    ui.icon('chevron_right').classes('text-4xl')
+        
         self.image_list: List[str] = []
 
     def add_image(self, thumb_url: str, orig_url: str) -> ui.image:
@@ -30,14 +43,22 @@ class Lightbox:
             return
         if event_args.key.escape:
             self.dialog.close()
-        image_index = self.image_list.index(self.large_image.source)
-        if event_args.key.arrow_left and image_index > 0:
-            self._open(self.image_list[image_index - 1])
-        if event_args.key.arrow_right and image_index < len(self.image_list) - 1:
-            self._open(self.image_list[image_index + 1])
+        if event_args.key.arrow_left:
+            self._navigate(-1)
+        if event_args.key.arrow_right:
+            self._navigate(1)
+
+    def _navigate(self, direction: int) -> None:
+        """Navigate through images. direction should be -1 for previous or 1 for next."""
+        current_idx = self.image_list.index(self.large_image.source)
+        new_idx = current_idx + direction
+        if 0 <= new_idx < len(self.image_list):
+            self._open(self.image_list[new_idx])
 
     def _open(self, url: str) -> None:
         self.large_image.set_source(url)
+        current_idx = self.image_list.index(url)
+        self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
         self.dialog.open()
 
 def save_prompt(name, type_value, text_area):
@@ -351,6 +372,17 @@ def test_image_generator_parser():
         async def run_test(e):
             """Run the test with the current input"""
             try:
+                # Clear previous results first
+                results_container.clear()
+                
+                # Show parsing status
+                with results_container:
+                    status_card = ui.card().classes('w-full p-4')
+                    with status_card:
+                        with ui.row().classes('items-center gap-4'):
+                            ui.spinner('dots').classes('text-primary')
+                            ui.label('Processing visual scenes...').classes('text-lg')
+                
                 # Get current appearance from memory system
                 current_appearance = memory_system.get_recent_appearances(1)
                 current_appearance_text = current_appearance[0]["description"] if current_appearance else None
@@ -362,6 +394,7 @@ def test_image_generator_parser():
                 image_tags = re.findall(image_pattern, test_input.value, re.DOTALL)
                 
                 if not image_tags:
+                    results_container.clear()
                     with results_container:
                         ui.label("No <image> tags found in the input").classes('text-gray-400')
                     return
@@ -373,13 +406,28 @@ def test_image_generator_parser():
                     "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
                 }
                 
-                # Process through image parser
-                parsed_scenes = image_scene_parser.parse_images(
-                    json.dumps(image_context),
-                    current_appearance=current_appearance_text
-                )
+                # Process through image parser with periodic UI updates
+                try:
+                    parsed_scenes = await ui.run_javascript(
+                        'await new Promise(resolve => {'
+                        '  setTimeout(() => {'
+                        '    resolve(null);'
+                        '  }, 100);'
+                        '})'
+                    )
+                    parsed_scenes = image_scene_parser.parse_images(
+                        json.dumps(image_context),
+                        current_appearance=current_appearance_text
+                    )
+                except Exception as e:
+                    print(f"Parser error: {str(e)}")
+                    results_container.clear()
+                    with results_container:
+                        with ui.card().classes('w-full p-4 bg-red-100 dark:bg-red-900'):
+                            ui.label('Error during scene parsing. Please try again.').classes('text-red-600 dark:text-red-100')
+                    return
                 
-                # Clear previous results
+                # Clear the status display
                 results_container.clear()
                 
                 if parsed_scenes and len(parsed_scenes) > 0:
@@ -392,7 +440,11 @@ def test_image_generator_parser():
                         print(f"Image context: {json.dumps(image_context, indent=2)}")
                         print(f"Parsed scenes: {parsed_scenes}")
             except Exception as e:
-                ui.notify(f"Error: {str(e)}", color='negative')
+                # Clear any loading states and show error
+                results_container.clear()
+                with results_container:
+                    with ui.card().classes('w-full p-4 bg-red-100 dark:bg-red-900'):
+                        ui.label(f'Error: {str(e)}').classes('text-red-600 dark:text-red-100')
                 print(f"Full error: {str(e)}")
                 import traceback
                 print(traceback.format_exc())

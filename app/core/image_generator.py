@@ -31,27 +31,6 @@ class ImageGenerator:
             self.runware = None
             return False
 
-    async def _download_image(self, image_url: str) -> str:
-        """Download an image from a URL and save it locally"""
-        try:
-            # Generate a unique filename
-            filename = f"{uuid.uuid4()}.png"
-            local_path = os.path.join(self.images_dir, filename)
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(image_url) as response:
-                    if response.status == 200:
-                        with open(local_path, 'wb') as f:
-                            f.write(await response.read())
-                        self.logger.info(f"Image saved to {local_path}")
-                        return local_path
-                    else:
-                        self.logger.error(f"Failed to download image: HTTP {response.status}")
-                        return None
-        except Exception as e:
-            self.logger.error(f"Error downloading image: {str(e)}")
-            return None
-
     async def generate(self, prompt: str | dict, negative_prompt: str = None) -> str:
         """Generate an image from a prompt
         
@@ -123,17 +102,19 @@ class ImageGenerator:
             
             self.logger.debug(f"Generating image with prompt: {final_prompt}")
             
-            # Get the images
-            images = await self.runware.imageInference(image_request)
+            # Get the images with timeout
+            try:
+                images = await asyncio.wait_for(
+                    self.runware.imageInference(image_request),
+                    timeout=60  # 60 second timeout
+                )
+            except asyncio.TimeoutError:
+                self.logger.error("Timeout while waiting for image generation")
+                return None
             
             if images and len(images) > 0:
                 image = images[0]  # Get first image
-                image_url = image.imageURL
-                # Download and save the image locally
-                local_path = await self._download_image(image_url)
-                if local_path:
-                    self.logger.info(f"Image generated and saved successfully: {local_path}")
-                    return image_url
+                return image.imageURL
             
             return None
             
@@ -158,12 +139,23 @@ class ImageGenerator:
             scheduler = self.config.get("image_generation", "scheduler")
             output_type = self.config.get("image_generation", "output_type")
             include_cost = self.config.get("image_generation", "include_cost")
+            prompt_weighting = self.config.get("image_generation", "prompt_weighting")
+            lora_configs = self.config.get("image_generation", "lora")
+            prompt_pre = self.config.get("image_generation", "prompt_pre", "")
+            prompt_post = self.config.get("image_generation", "prompt_post", "")
+            
+            # Use default negative prompt if none provided
+            if negative_prompt is None:
+                negative_prompt = self.config.get("image_generation", "default_negative_prompt")
 
             # Create image requests for each prompt
             requests = []
             for prompt in prompts:
+                # Build the final prompt with prefix and suffix
+                final_prompt = f"{prompt_pre} {prompt} {prompt_post}".strip()
+                
                 request_params = {
-                    'positivePrompt': prompt,
+                    'positivePrompt': final_prompt,
                     'model': model,
                     'width': width,
                     'height': height,
@@ -173,19 +165,31 @@ class ImageGenerator:
                     'CFGScale': cfg_scale,
                     'scheduler': scheduler,
                     'outputType': output_type,
-                    'includeCost': include_cost
+                    'includeCost': include_cost,
+                    'promptWeighting': prompt_weighting
                 }
                 
                 if negative_prompt:
                     request_params['negativePrompt'] = negative_prompt
                 
+                # Add LoRA configurations if present
+                if lora_configs and len(lora_configs) > 0:
+                    request_params['lora'] = [ILora(model=lora["model"], weight=lora["weight"]) for lora in lora_configs]
+                
                 requests.append(IImageInference(**request_params))
 
-            # Execute all requests in parallel
-            all_results = await asyncio.gather(
-                *[self.runware.imageInference(req) for req in requests],
-                return_exceptions=True
-            )
+            # Execute all requests in parallel with timeout
+            try:
+                all_results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[self.runware.imageInference(req) for req in requests],
+                        return_exceptions=True
+                    ),
+                    timeout=120  # 120 second timeout for all images
+                )
+            except asyncio.TimeoutError:
+                self.logger.error("Timeout while waiting for parallel image generation")
+                return []
 
             # Process results
             image_urls = []
@@ -196,11 +200,7 @@ class ImageGenerator:
                 
                 if result and len(result) > 0:
                     image = result[0]
-                    image_url = image.imageURL
-                    # Download and save the image locally
-                    local_path = await self._download_image(image_url)
-                    if local_path:
-                        image_urls.append(image_url)
+                    image_urls.append(image.imageURL)
 
             return image_urls
 
