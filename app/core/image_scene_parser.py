@@ -48,14 +48,24 @@ class ImageSceneParser:
             if current_appearance:
                 system_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}"
 
+            logger.debug(f"System prompt for image parser:\n{system_prompt}")
+
             # Parse the input JSON if it's a JSON string
             try:
                 input_data = json.loads(response_text)
                 if isinstance(input_data, dict) and "images" in input_data:
                     # Extract sequence information
                     sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
-                    # Join all image contents
-                    image_text = "\n".join([f"Image {seq}: {img['content']}" for seq, img in zip(sequences, input_data["images"])])
+                    # Join all image contents with context
+                    image_text = []
+                    if "mood" in input_data:
+                        image_text.append(f"Current mood: {input_data['mood']}")
+                    if "appearance" in input_data:
+                        image_text.append(f"Current appearance: {input_data['appearance']}")
+                    if "location" in input_data:
+                        image_text.append(f"Current location: {input_data['location']}")
+                    image_text.extend([f"Image {seq}: {img['content']}" for seq, img in zip(sequences, input_data["images"])])
+                    image_text = "\n".join(image_text)
                 else:
                     image_text = response_text
             except json.JSONDecodeError:
@@ -65,6 +75,8 @@ class ImageSceneParser:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"{image_text}"}
             ]
+
+            logger.debug(f"Full messages for image parser:\n{json.dumps(messages, indent=2)}")
 
             endpoint = f"{api_base}/chat/completions"
             payload = {

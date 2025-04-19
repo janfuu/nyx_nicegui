@@ -1,5 +1,5 @@
 import json
-import httpx
+import re
 from app.models.prompt_models import PromptManager, PromptType
 from app.utils.config import Config
 from app.utils.logger import Logger
@@ -13,33 +13,67 @@ class ResponseParser:
     @staticmethod
     def parse_response(response_text, current_appearance=None):
         """
-        Parse the LLM response to extract special tags and infer mood, thoughts, and appearance
+        Parse the response text to extract special tags for mood, thoughts, and appearance changes
         
         Args:
             response_text: The text to parse
-            current_appearance: The current appearance description for context
+            current_appearance: The current appearance description for context (unused in regex version)
         """
         logger = Logger()
         logger.info("Starting to parse response")
         logger.debug(f"Original response text: {response_text}")
-        logger.debug(f"Current appearance: {current_appearance}")
         
-        # Get the parsed result using LLM
-        result = ResponseParser._llm_parse(response_text, current_appearance)
+        # Initialize result structure
+        result = {
+            "thoughts": [],
+            "mood": None,
+            "appearance": [],
+            "location": None,
+            "main_text": response_text,
+            "images": []
+        }
         
-        if not result:
-            logger.error("LLM parsing failed")
-            # Return a safe fallback structure
-            return {
-                "thoughts": [],
-                "mood": None,
-                "self": [],
-                "main_text": response_text
-            }
+        # Extract thoughts using regex
+        thought_pattern = r'<thought>(.*?)</thought>'
+        thoughts = re.findall(thought_pattern, response_text, re.DOTALL)
+        if thoughts:
+            result["thoughts"] = [thought.strip() for thought in thoughts]
+            logger.info(f"Found {len(thoughts)} thoughts")
         
-        logger.info(f"Parsing complete. Found: {len(result.get('thoughts', []))} thoughts, Mood update: {'Yes' if result.get('mood') else 'No'}")
+        # Extract mood using regex
+        mood_pattern = r'<mood>(.*?)</mood>'
+        moods = re.findall(mood_pattern, response_text, re.DOTALL)
+        if moods:
+            result["mood"] = moods[-1].strip()  # Use the last mood tag if multiple exist
+            logger.info(f"Found mood update: {result['mood']}")
+        
+        # Extract appearance changes using regex
+        appearance_pattern = r'<appearance>(.*?)</appearance>'
+        appearance_changes = re.findall(appearance_pattern, response_text, re.DOTALL)
+        if appearance_changes:
+            result["appearance"] = [change.strip() for change in appearance_changes]
+            logger.info(f"Found {len(appearance_changes)} appearance changes")
+        
+        # Extract location changes using regex
+        location_pattern = r'<location>(.*?)</location>'
+        locations = re.findall(location_pattern, response_text, re.DOTALL)
+        if locations:
+            result["location"] = locations[-1].strip()  # Use the last location tag if multiple exist
+            logger.info(f"Found location update: {result['location']}")
+        
+        # Extract images using regex
+        image_pattern = r'<image>(.*?)</image>'
+        images = re.findall(image_pattern, response_text, re.DOTALL)
+        if images:
+            result["images"] = [image.strip() for image in images]
+            logger.info(f"Found {len(images)} images")
+        
+        # Clean the main text by removing all tags
+        result["main_text"] = re.sub(r'<(thought|mood|appearance|location|image)>(.*?)</\1>', '', response_text, flags=re.DOTALL).strip()
+        
+        logger.info(f"Parsing complete. Found: {len(result['thoughts'])} thoughts, Mood update: {'Yes' if result['mood'] else 'No'}")
         return result
-    
+
     @staticmethod
     def _llm_parse(response_text, current_appearance=None):
         """Parse the response using LLM"""
@@ -83,7 +117,7 @@ YOU MUST RETURN VALID JSON in the following format:
   "main_text": "The cleaned response with all tags removed",
   "thoughts": ["thought1", "thought2"],
   "mood": "detected mood or null",
-  "self": ["action1", "action2"]
+  "appearance": ["action1", "action2"]
 }
 
 IMPORTANT RULES:
@@ -100,7 +134,7 @@ For mood detection:
 
 For appearance detection:
 - Look for descriptions of physical changes or actions
-- Include both explicit <self> tags and implicit descriptions
+- Include both explicit <appearance> tags and implicit descriptions
 - Consider the current appearance context
 
 The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
@@ -167,7 +201,7 @@ YOU MUST RETURN VALID JSON in the following format:
   "main_text": "The cleaned response with all tags removed",
   "thoughts": ["thought1", "thought2"],
   "mood": "detected mood or null",
-  "self": ["action1", "action2"]
+  "appearance": ["action1", "action2"]
 }
 
 IMPORTANT RULES:
@@ -184,7 +218,7 @@ For mood detection:
 
 For appearance detection:
 - Look for descriptions of physical changes or actions
-- Include both explicit <self> tags and implicit descriptions
+- Include both explicit <appearance> tags and implicit descriptions
 - Consider the current appearance context
 
 The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.

@@ -8,6 +8,11 @@ import numpy as np
 class MemorySystem:
     def __init__(self):
         self.db = Database()
+        self.mood = None
+        self.appearance_changes = []
+        self.location = None
+        self.thoughts = []
+        self.conversations = []
     
     def add_conversation_entry(self, role, content, embedding=None):
         """Add a conversation turn to the database"""
@@ -48,18 +53,9 @@ class MemorySystem:
         conn.commit()
         return cursor.lastrowid
     
-    def update_mood(self, mood, intensity=1.0):
-        """Update the current mood state"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
+    def update_mood(self, mood: str):
+        self.mood = mood
         
-        cursor.execute(
-            "INSERT INTO emotions (mood, intensity) VALUES (?, ?)",
-            (mood, intensity)
-        )
-        conn.commit()
-        return cursor.lastrowid
-    
     def get_current_mood(self):
         """Get the most recent mood"""
         conn = self.db.get_connection()
@@ -241,6 +237,12 @@ class MemorySystem:
         appearances = [{"description": desc, "timestamp": timestamp} 
                       for desc, timestamp in results]
         return appearances
+
+    def add_appearance_change(self, change: str):
+        self.appearance_changes.append(change)
+        
+    def update_location(self, location: str):
+        self.location = location
 
     def initialize_tables(self):
         """Initialize database tables"""

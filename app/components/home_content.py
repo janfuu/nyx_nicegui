@@ -1,9 +1,61 @@
-from nicegui import ui
+from nicegui import ui, app, events
 from ..services.chat_pipeline import ChatPipeline
 import time
 import asyncio
 from ..core.memory_system import MemorySystem
 import httpx
+import json
+from typing import List
+
+class Lightbox:
+    """A thumbnail gallery where each image can be clicked to enlarge."""
+    def __init__(self) -> None:
+        with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
+            ui.keyboard(self._handle_key)
+            with ui.row().classes('w-full h-full items-center justify-between'):
+                # Left arrow
+                with ui.button(on_click=lambda: self._navigate(-1)).props('flat round color=white').classes('ml-4'):
+                    ui.icon('chevron_left').classes('text-4xl')
+                
+                # Center container for image
+                with ui.column().classes('flex-grow items-center justify-center h-full'):
+                    self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-[90vh]')
+                    self.counter = ui.label().classes('mt-2 text-white')
+                
+                # Right arrow
+                with ui.button(on_click=lambda: self._navigate(1)).props('flat round color=white').classes('mr-4'):
+                    ui.icon('chevron_right').classes('text-4xl')
+        
+        self.image_list: List[str] = []
+
+    def add_image(self, thumb_url: str, orig_url: str) -> ui.image:
+        """Place a thumbnail image in the UI and make it clickable to enlarge."""
+        self.image_list.append(orig_url)
+        with ui.button(on_click=lambda: self._open(orig_url)).props('flat dense square'):
+            return ui.image(thumb_url)
+
+    def _handle_key(self, event_args: events.KeyEventArguments) -> None:
+        if not event_args.action.keydown:
+            return
+        if event_args.key.escape:
+            self.dialog.close()
+        if event_args.key.arrow_left:
+            self._navigate(-1)
+        if event_args.key.arrow_right:
+            self._navigate(1)
+
+    def _navigate(self, direction: int) -> None:
+        """Navigate through images. direction should be -1 for previous or 1 for next."""
+        current_idx = self.image_list.index(self.large_image.source)
+        new_idx = current_idx + direction
+        if 0 <= new_idx < len(self.image_list):
+            self._open(self.image_list[new_idx])
+
+    def _open(self, url: str) -> None:
+        self.large_image.set_source(url)
+        current_idx = self.image_list.index(url)
+        self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
+        self.dialog.open()
 
 # Initialize the chat pipeline
 chat_pipeline = ChatPipeline()
@@ -11,6 +63,7 @@ chat_pipeline = ChatPipeline()
 def content() -> None:
     # Initialize memory system
     memory_system = MemorySystem()
+    lightbox = Lightbox()  # Initialize lightbox
     
     # Get initial state from database
     initial_mood = memory_system.get_current_mood()
@@ -42,11 +95,11 @@ def content() -> None:
     
     with ui.row().classes('w-full gap-4 flex-nowrap'):
         # Left Card
-        with ui.card().classes('flex-1'):
+        with ui.card().classes('flex-1 max-w-[512px]'):
             with ui.column().classes('gap-4 w-full'):
                 # Store reference to portrait image
                 portrait_path = 'app/assets/images/portrait.jpg'
-                portrait_ref = ui.image(portrait_path).classes('w-full rounded-xl')
+                portrait_ref = ui.image(portrait_path).classes('w-full max-w-[512px] max-h-[512px] rounded-xl')
                 
                 # Character's current mood display
                 ui.label('MOOD').classes('text-blue-500 text-sm')
@@ -75,47 +128,13 @@ def content() -> None:
                 
                 # Function to display image details
                 def show_image_details(image_data):
-                    dialog = ui.dialog()
-                    with dialog:
-                        with ui.card().classes('w-full max-w-5xl'):
-                            ui.label('Image Details').classes('text-xl font-bold mb-2')
-                            
-                            # Image container with zoom controls
-                            with ui.column().classes('w-full'):
-                                # Zoom controls
-                                with ui.row().classes('justify-between w-full mb-2'):
-                                    ui.label('Zoom:').classes('text-sm')
-                                    zoom_slider = ui.slider(min=0.5, max=2, value=1, step=0.1)\
-                                        .classes('w-48')
-                                
-                                # Image container with scroll
-                                with ui.scroll_area().classes('w-full h-[80vh] border rounded-lg'):
-                                    # Display image at native size (896x1152)
-                                    img = ui.image(image_data["url"])\
-                                        .classes('rounded-lg cursor-pointer transition-transform duration-200')\
-                                        .style('width: 896px; height: 1152px;')
-                                    
-                                    # Update image size based on zoom
-                                    def update_zoom(e):
-                                        scale = e.value
-                                        img.style(f'width: {int(896 * scale)}px; height: {int(1152 * scale)}px;')
-                                    
-                                    zoom_slider.on_value_change(update_zoom)
-                            
-                            # Image details
-                            ui.label('Original Prompt:').classes('font-bold mt-4')
-                            ui.markdown(image_data["description"]).classes('bg-[#1a1a1a] p-3 rounded mb-4')
-                            
-                            with ui.row().classes('justify-between w-full'):
-                                ui.button('Set as Portrait', 
-                                        on_click=lambda: set_as_portrait(image_data["url"]))\
-                                    .props('icon=face color=purple').classes('mr-2')
-                                ui.button('Close', on_click=dialog.close)
-                    dialog.open()
+                    lightbox._open(image_data["url"])
                 
                 # Message input and send button
                 with ui.row().classes('gap-4 mt-auto w-full'):
-                    msg_input = ui.input(placeholder='Type a message...').classes('flex-1 bg-[#1f1f1f] text-white')
+                    msg_input = ui.textarea(placeholder='Type a message...')\
+                        .classes('flex-1 bg-[#1f1f1f] text-white')\
+                        .props('auto-grow')
                     thinking_indicator = ui.spinner('Thinking...').classes('hidden')
                     
                     def send_message():
@@ -165,71 +184,143 @@ def content() -> None:
                                                 ui.markdown(f"*{response['mood']}*").classes('text-blue-300 text-sm italic pl-4')
                                                 mood_display.content = response["mood"]
                                         
-                                        # Display any self actions (appearance updates)
-                                        if response.get("self"):
+                                        # Display appearance changes
+                                        if response.get("appearance"):
                                             ui.separator().classes('my-2')
                                             with ui.expansion('APPEARANCE', icon='face').classes('w-full'):
-                                                for self_action in response["self"]:
-                                                    ui.markdown(f"*{self_action}*").classes('text-purple-300 text-sm italic pl-4')
-                                                    appearance_display.content = self_action
+                                                for appearance_change in response["appearance"]:
+                                                    ui.markdown(f"*{appearance_change}*").classes('text-purple-300 text-sm italic pl-4')
+                                                    appearance_display.content = appearance_change
                                         
                                         # Display generated images if present
                                         if response.get("images") and len(response["images"]) > 0:
                                             ui.separator().classes('my-2')
-                                            with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
-                                                with ui.row().classes('flex-wrap gap-2 w-full'):
-                                                    for image_data in response["images"]:
-                                                        if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
-                                                            with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                                                img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                                                img.on('click', lambda d=image_data: show_image_details(d))
+                                            with ui.row().classes('q-gutter-md flex-wrap'):
+                                                # Create a list to store image generation tasks
+                                                tasks = []
+                                                containers = []
+                                                
+                                                # First create all UI containers
+                                                for image_data in response["images"]:
+                                                    if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
+                                                        try:
+                                                            # Create a card for each image
+                                                            with ui.card().classes('q-pa-xs'):
+                                                                loading = ui.spinner('default', size='xl').props('color=primary')
+                                                                container = ui.button().props('flat dense').classes('w-[300px] h-[400px] overflow-hidden')
+                                                                with container:
+                                                                    img = ui.image().props('fit=cover').classes('w-full h-full')
+                                                                    img.visible = False
                                                                 
-                                                                with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                                    short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
-                                                                    ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                                    ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
-                                                                        .props('flat dense round').classes('text-xs')
+                                                                with ui.row().classes('items-center justify-between q-mt-xs'):
+                                                                    desc = image_data["description"][:30] + "..." if len(image_data["description"]) > 30 else image_data["description"]
+                                                                    ui.label(desc).classes('text-caption text-grey-5 ellipsis')
+                                                                
+                                                                tasks.append({
+                                                                    'scene': image_data["description"],
+                                                                    'loading': loading,
+                                                                    'img': img,
+                                                                    'button': container
+                                                                })
+                                                                containers.append(container)
+                                                        except Exception as e:
+                                                            print(f"Error setting up image display: {str(e)}")
+                                                            ui.notify(f"Error displaying image: {str(e)}", type='negative')
+                                                
+                                                # Update UI for all images
+                                                for task in tasks:
+                                                    try:
+                                                        task['loading'].visible = False
+                                                        task['img'].set_source(image_data["url"])
+                                                        task['img'].visible = True
+                                                        lightbox.image_list.append(image_data["url"])
+                                                        task['button'].on('click', lambda url=image_data["url"]: lightbox._open(url))
+                                                    except Exception as e:
+                                                        print(f"Error updating image display: {str(e)}")
+                                                        task['loading'].visible = False
+                                                        ui.label('Display failed').classes('text-caption text-negative')
                                         
-                                        # Add Visualize button for on-demand image generation
+                                        # Add Regenerate button for re-running image generation
                                         ui.separator().classes('my-2')
                                         with ui.row().classes('justify-between w-full'):
-                                            visualize_button = ui.button('Visualize', icon='image')\
+                                            regenerate_button = ui.button('Regenerate Images', icon='refresh')\
                                                 .props('color=purple').classes('mr-2')
                                             
-                                            async def visualize_response():
-                                                visualize_button.props('loading')
+                                            async def regenerate_images():
+                                                regenerate_button.props('loading')
                                                 try:
-                                                    # Generate images for the response
-                                                    images = await chat_pipeline.generate_images(response['text'])
+                                                    # Get current appearance and mood for context
+                                                    current_appearance = memory_system.get_recent_appearances(1)
+                                                    current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+                                                    current_mood = memory_system.get_current_mood()
                                                     
-                                                    if images and len(images) > 0:  # Check both that images exists and has items
-                                                        # Display generated images
-                                                        with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
-                                                            with ui.row().classes('flex-wrap gap-2 w-full'):
-                                                                for image_data in images:
-                                                                    if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
-                                                                        with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                                                            img = ui.image(image_data["url"]).classes('w-full rounded-lg cursor-pointer')
-                                                                            img.on('click', lambda d=image_data: show_image_details(d))
-                                                                            
-                                                                            with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                                                short_desc = image_data["description"][:30] + ("..." if len(image_data["description"]) > 30 else "")
-                                                                                ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                                                ui.button(icon='search', on_click=lambda d=image_data: show_image_details(d))\
-                                                                                    .props('flat dense round').classes('text-xs')
+                                                    # Extract image tags from response
+                                                    import re
+                                                    image_pattern = r'<image>(.*?)</image>'
+                                                    image_tags = re.findall(image_pattern, response['text'], re.DOTALL)
+                                                    
+                                                    if not image_tags:
+                                                        ui.notify('No <image> tags found in the response', color='warning')
+                                                        return
+                                                    
+                                                    # Format image contents with context and sequence
+                                                    image_context = {
+                                                        "appearance": current_appearance_text,
+                                                        "mood": current_mood,
+                                                        "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
+                                                    }
+                                                    
+                                                    # Process through image parser
+                                                    parsed_scenes = chat_pipeline.image_scene_parser.parse_images(
+                                                        json.dumps(image_context),
+                                                        current_appearance=current_appearance_text
+                                                    )
+                                                    
+                                                    if parsed_scenes:
+                                                        # Generate all images in parallel
+                                                        scene_contents = [scene['content'] if isinstance(scene, dict) else scene for scene in parsed_scenes]
+                                                        image_urls = await chat_pipeline.image_generator.generate_parallel(scene_contents)
+                                                        
+                                                        if image_urls and len(image_urls) > 0:
+                                                            # Clear existing images
+                                                            for child in list(chat_box.children):
+                                                                if isinstance(child, ui.expansion) and child.text == 'GENERATED IMAGES':
+                                                                    chat_box.remove(child)
+                                                            
+                                                            # Display regenerated images
+                                                            with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
+                                                                with ui.row().classes('flex-wrap gap-2 w-full'):
+                                                                    # Create a list of tuples with original tag, parsed scene, and image URL
+                                                                    image_data = list(zip(image_tags, parsed_scenes, image_urls))
+                                                                    # Sort by sequence number if available
+                                                                    image_data.sort(key=lambda x: x[1].get('sequence', 0) if isinstance(x[1], dict) else 0)
+                                                                    
+                                                                    for original_tag, scene, image_url in image_data:
+                                                                        if image_url:
+                                                                            with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                                                img = lightbox.add_image(image_url, image_url)
+                                                                                img.classes('w-full rounded-lg cursor-pointer')
+                                                                                
+                                                                                with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                                                    short_desc = original_tag[:30] + ("..." if len(original_tag) > 30 else original_tag)
+                                                                                    ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                                                    ui.button(icon='search', on_click=lambda url=image_url, tag=original_tag: show_image_details({"url": url, "description": tag}))\
+                                                                                        .props('flat dense round').classes('text-xs')
+                                                        else:
+                                                            ui.notify('Failed to generate images', color='negative')
                                                     else:
                                                         ui.notify('No visual scenes found in the response', color='warning')
                                                 except Exception as e:
                                                     ui.notify(f'Failed to generate images: {str(e)}', color='negative', timeout=5000)
                                                     print(f"Image generation error: {str(e)}")  # Log the full error
                                                 finally:
-                                                    visualize_button.props('loading=false')
+                                                    regenerate_button.props('loading=false')
                                             
-                                            visualize_button.on('click', visualize_response)
+                                            regenerate_button.on('click', regenerate_images)
                                 
                                 # Update appearance display if provided
-                                if response.get("self") and len(response["self"]) > 0:
-                                    appearance_display.content = response["self"][-1]  # Show the most recent appearance update
+                                if response.get("appearance") and len(response["appearance"]) > 0:
+                                    appearance_display.content = response["appearance"][-1]  # Show the most recent appearance update
                                     
                             except Exception as e:
                                 # Handle errors
@@ -255,7 +346,7 @@ def content() -> None:
                     msg_input.on('keydown', on_key_press)
 
         # Right Card
-        with ui.card().classes('flex-1'):
+        with ui.card().classes('flex-1 max-w-[768px]'):
             with ui.column().classes('gap-4 w-full'):
                 # Location image
                 location_image = ui.image('assets/images/location.png').classes('w-full rounded-xl')
