@@ -423,17 +423,48 @@ def test_image_generator_parser():
                 
                 # Process through image parser with periodic UI updates
                 try:
-                    parsed_scenes = await ui.run_javascript(
-                        'await new Promise(resolve => {'
-                        '  setTimeout(() => {'
-                        '    resolve(null);'
-                        '  }, 100);'
-                        '})'
-                    )
-                    parsed_scenes = image_scene_parser.parse_images(
-                        json.dumps(image_context),
-                        current_appearance=current_appearance_text
-                    )
+                    # Show parsing status
+                    status_card.clear()
+                    with status_card:
+                        with ui.row().classes('items-center gap-4'):
+                            ui.spinner('dots').classes('text-primary')
+                            ui.label('Parsing visual scenes...').classes('text-lg')
+                    
+                    # Convert to async operation with timeout
+                    async def parse_with_timeout():
+                        try:
+                            return await image_scene_parser.parse_images(
+                                json.dumps(image_context),
+                                current_appearance=current_appearance_text
+                            )
+                        except Exception as e:
+                            print(f"Error in scene parsing: {str(e)}")
+                            return None
+                    
+                    # Use timeout similar to image generation
+                    try:
+                        # Set reasonable timeout (adjust as needed)
+                        timeout_seconds = 30
+                        parsed_scenes = await asyncio.wait_for(parse_with_timeout(), timeout=timeout_seconds)
+                        
+                        if parsed_scenes is None or len(parsed_scenes) == 0:
+                            status_card.clear()
+                            with status_card:
+                                ui.label("No visual scenes detected in input").classes('text-warning')
+                            return
+                            
+                    except asyncio.TimeoutError:
+                        print("Timeout while waiting for scene parsing")
+                        status_card.clear()
+                        with status_card:
+                            ui.label("Scene parsing is taking longer than expected. Please wait or try again.").classes('text-warning')
+                            
+                        # Continue with a simplified approach or partial processing if available
+                        # For now, we'll just inform the user
+                        results_container.clear()
+                        with results_container:
+                            ui.label("Scene parsing timed out. Please try again with a simpler input.").classes('text-red-600 dark:text-red-100')
+                        return
                 except Exception as e:
                     print(f"Parser error: {str(e)}")
                     results_container.clear()

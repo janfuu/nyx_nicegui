@@ -278,10 +278,23 @@ def content() -> None:
                                                     }
                                                     
                                                     # Process through image parser
-                                                    parsed_scenes = chat_pipeline.image_scene_parser.parse_images(
-                                                        json.dumps(image_context),
-                                                        current_appearance=current_appearance_text
-                                                    )
+                                                    try:
+                                                        # Use timeout for parser
+                                                        parsed_scenes = await asyncio.wait_for(
+                                                            chat_pipeline.image_scene_parser.parse_images(
+                                                                json.dumps(image_context),
+                                                                current_appearance=current_appearance_text
+                                                            ),
+                                                            timeout=60  # 60 second timeout for scene parsing
+                                                        )
+                                                    except asyncio.TimeoutError:
+                                                        ui.notify('Image scene parsing timed out. Please try again.', color='warning')
+                                                        regenerate_button.props('loading=false')
+                                                        return
+                                                    except Exception as e:
+                                                        ui.notify(f'Error parsing image scenes: {str(e)}', color='negative')
+                                                        regenerate_button.props('loading=false')
+                                                        return
                                                     
                                                     if parsed_scenes:
                                                         # Generate all images in parallel

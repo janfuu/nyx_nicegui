@@ -12,3 +12,4 @@ scikit-learn>=0.0.0
 runware
 python-dotenv>=1.0.0
 aiohttp
+pyyaml>=6.0

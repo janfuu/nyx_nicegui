@@ -27,7 +27,7 @@
         "use_streaming": false,
         
         "parser_provider": "openrouter",
-        "parser_model": "mistralai/mistral-large-2411"
+        "parser_model": "openai/gpt-4o"
     },
     "image_generation": {
         "model": "civitai:443821@1478064",

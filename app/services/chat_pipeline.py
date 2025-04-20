@@ -181,7 +181,8 @@ class ChatPipeline:
                     "images": [{"content": tag["content"], "sequence": tag["sequence"]} for tag in image_tags]
                 }
                 
-                parsed_scenes = self.image_scene_parser.parse_images(
+                # Parse scenes with async method
+                parsed_scenes = await self.image_scene_parser.parse_images(
                     json.dumps(image_context),
                     current_appearance=current_appearance_text
                 )
@@ -248,6 +249,6 @@ class ChatPipeline:
         # Process images if present
         if parsed["images"]:
             for image_content in parsed["images"]:
-                await self.image_parser.parse_images(image_content)
+                await self.image_scene_parser.parse_images(image_content)
                 
         return parsed

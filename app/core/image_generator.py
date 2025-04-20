@@ -7,6 +7,8 @@ from runware import Runware, IImageInference, RunwareAPIError
 import asyncio
 from runware.types import ILora
 import json
+import time
+from typing import List, Optional, Dict
 
 class ImageGenerator:
     def __init__(self):
@@ -14,6 +16,7 @@ class ImageGenerator:
         self.logger = Logger()
         self.runware = None
         self.images_dir = os.path.join("data", "images")
+        self.partial_results: Dict[str, List[str]] = {}
         os.makedirs(self.images_dir, exist_ok=True)
 
     async def _ensure_connection(self) -> bool:
@@ -32,18 +35,48 @@ class ImageGenerator:
             self.runware = None
             return False
 
+    def _on_partial_images(self, request_id: str, images, error):
+        """Callback function for receiving partial images"""
+        if error:
+            self.logger.error(f"API Error in partial results for {request_id}: {error}")
+        else:
+            self.logger.info(f"Received {len(images)} partial images for request {request_id}")
+            # Store the image URLs
+            if request_id not in self.partial_results:
+                self.partial_results[request_id] = []
+            
+            for image in images:
+                self.logger.info(f"Partial Image URL for {request_id}: {image.imageURL}")
+                if hasattr(image, 'imageURL') and image.imageURL:
+                    self.partial_results[request_id].append(image.imageURL)
+
+    async def _safe_request_image(self, request_id: str, request_image: IImageInference):
+        """Safely request images and handle errors"""
+        try:
+            return await self.runware.imageInference(requestImage=request_image)
+        except RunwareAPIError as e:
+            self.logger.error(f"API Error for request {request_id}: {e}")
+            self.logger.error(f"Error Code: {e.code if hasattr(e, 'code') else 'unknown'}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected Error for request {request_id}: {str(e)}")
+            return None
+
     async def generate(self, prompts: list[dict | str], negative_prompt: str = None) -> list[str]:
         """Generate one or more images from scene prompts
         
         Args:
             prompts: List of scene prompts, where each prompt can be:
                 - A string prompt
-                - A dict with 'content'/'prompt' and 'orientation' keys
+                - A dict with 'prompt'/'content' and 'orientation' keys
             negative_prompt: Optional negative prompt to use
         Returns:
             List of image URL strings. Will be empty if generation failed.
         """
         try:
+            # Reset partial results for this generation run
+            self.partial_results = {}
+            
             if not await self._ensure_connection():
                 return []
 
@@ -88,7 +121,13 @@ class ImageGenerator:
 
             # Create image requests for each prompt
             requests = []
-            for prompt in prompts:
+            request_ids = []
+            
+            for i, prompt in enumerate(prompts):
+                # Generate a unique ID for this request
+                request_id = f"req_{int(time.time())}_{i}"
+                request_ids.append(request_id)
+                
                 # Extract prompt content and orientation
                 if isinstance(prompt, dict):
                     # Accept either 'content' or 'prompt' field
@@ -108,6 +147,12 @@ class ImageGenerator:
                 # Build the final prompt with prefix and suffix
                 final_prompt = f"{prompt_pre} {prompt_content} {prompt_post}".strip()
                 
+                # Create a closure for the callback that includes the request_id
+                def create_callback(req_id):
+                    def callback(images, error):
+                        self._on_partial_images(req_id, images, error)
+                    return callback
+                
                 request_params = {
                     'positivePrompt': final_prompt,
                     'model': model,
@@ -120,7 +165,8 @@ class ImageGenerator:
                     'scheduler': scheduler,
                     'outputType': output_type,
                     'includeCost': include_cost,
-                    'promptWeighting': prompt_weighting
+                    'promptWeighting': prompt_weighting,
+                    'onPartialImages': create_callback(request_id)
                 }
                 
                 if negative_prompt:
@@ -130,43 +176,90 @@ class ImageGenerator:
                 if lora_configs and len(lora_configs) > 0:
                     request_params['lora'] = [ILora(model=lora["model"], weight=lora["weight"]) for lora in lora_configs]
                 
-                self.logger.info(f"=== Request Parameters for {orientation} image ===")
+                self.logger.info(f"=== Request Parameters for {orientation} image (ID: {request_id}) ===")
                 # Create a copy of request_params for logging, converting ILora to dict
                 log_params = request_params.copy()
                 if 'lora' in log_params:
                     log_params['lora'] = [{'model': lora.model, 'weight': lora.weight} for lora in log_params['lora']]
+                # Remove callback for logging
+                log_params.pop('onPartialImages', None)
                 self.logger.info(json.dumps(log_params, indent=2))
                 
                 requests.append(IImageInference(**request_params))
 
             # Execute all requests in parallel with timeout
             try:
+                # Scale timeout based on number of requests (at least 30 seconds per image)
+                timeout_seconds = max(120, 30 * len(requests))  # At least 120 seconds, 30 seconds per image
+                self.logger.info(f"Using timeout of {timeout_seconds} seconds for {len(requests)} images")
+                
+                # Create safe request tasks
+                tasks = [self._safe_request_image(request_id, request) 
+                         for request_id, request in zip(request_ids, requests)]
+                
                 all_results = await asyncio.wait_for(
-                    asyncio.gather(
-                        *[self.runware.imageInference(req) for req in requests],
-                        return_exceptions=True
-                    ),
-                    timeout=120  # 120 second timeout for all images
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=timeout_seconds
                 )
+                
                 self.logger.info("=== API Results ===")
                 self.logger.info(f"Raw results: {all_results}")
+                
             except asyncio.TimeoutError:
                 self.logger.error("Timeout while waiting for image generation")
+                
+                # Check if we have any partial results from callbacks
+                if self.partial_results:
+                    self.logger.info(f"Timeout occurred, but we have partial results: {self.partial_results}")
+                    # Flatten the partial results into a list matching the original prompt order
+                    image_urls = []
+                    for req_id in request_ids:
+                        if req_id in self.partial_results and self.partial_results[req_id]:
+                            # Take the first result for each request
+                            image_urls.append(self.partial_results[req_id][0])
+                        else:
+                            # No result for this request
+                            image_urls.append(None)
+                    
+                    # Remove None values
+                    image_urls = [url for url in image_urls if url]
+                    
+                    if image_urls:
+                        self.logger.info(f"Returning {len(image_urls)} partial results despite timeout")
+                        self.logger.info(f"Partial image URLs: {repr(image_urls)}")
+                        return image_urls
+                
+                self.logger.info("No partial results available. Images might still be generating on Runware. Consider checking directly on the Runware site.")
+                return []
+            
+            except Exception as e:
+                self.logger.error(f"Error during image generation: {str(e)}")
                 return []
 
             # Process results
             image_urls = []
-            for i, result in enumerate(all_results):
+            for i, (result, request_id) in enumerate(zip(all_results, request_ids)):
+                # Check if the result is an exception
                 if isinstance(result, Exception):
-                    self.logger.error(f"Error generating image {i+1}: {str(result)}")
+                    self.logger.error(f"Error generating image {i+1} (ID: {request_id}): {str(result)}")
+                    # Try to use partial results if available
+                    if request_id in self.partial_results and self.partial_results[request_id]:
+                        self.logger.info(f"Using partial result for {request_id} due to error in final result")
+                        image_urls.append(self.partial_results[request_id][0])
                     continue
                 
+                # Handle normal results
                 if result and len(result) > 0:
                     image = result[0]
                     # Log the complete image object
-                    self.logger.info(f"Image {i+1} complete result: {image}")
+                    self.logger.info(f"Image {i+1} (ID: {request_id}) complete result: {image}")
                     # Add URL to our list
                     image_urls.append(image.imageURL)
+                else:
+                    # Try to use partial results if final result is empty
+                    if request_id in self.partial_results and self.partial_results[request_id]:
+                        self.logger.info(f"Using partial result for {request_id} due to empty final result")
+                        image_urls.append(self.partial_results[request_id][0])
 
             # Log the complete list with repr to ensure nothing is truncated
             self.logger.info(f"All generated image URLs: {repr(image_urls)}")

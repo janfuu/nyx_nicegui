@@ -1,0 +1,82 @@
+# Nyx Application Configuration
+
+app:
+  title: Nyx
+  host: localhost
+  port: 8080
+  debug: true
+  version: 1.0.0
+
+database:
+  path: data/nyx_memory.db
+
+llm:
+  provider: openrouter
+  model: mistralai/mistral-nemo
+  temperature: 0.8
+  max_tokens: 512
+  max_new_tokens: 512
+  truncation_length: 2048
+  local_api_base: http://localhost:5000/v1
+  openrouter_api_base: https://openrouter.ai/api/v1
+  
+  api_key: ""
+  openrouter_api_key: ""
+  http_referer: http://localhost:8080
+  max_messages: 20
+  timeout: 60
+  use_streaming: false
+  
+  parser_provider: openrouter
+  parser_model: openai/gpt-4o
+
+image_generation:
+  # Main model to use for image generation
+  model: civitai:443821@1478064
+  
+  # Image size configurations
+  size_portrait:
+    width: 832
+    height: 1216
+  size_landscape:
+    width: 1216
+    height: 832
+  size_square:
+    width: 1024
+    height: 1024
+  
+  number_results: 1
+  output_format: JPG
+  steps: 30
+  cfg_scale: 7.0
+  clipSkip: 2
+  scheduler: Default
+  output_type: 
+    - URL
+  include_cost: false
+  prompt_weighting: sdEmbeds
+  default_negative_prompt: score_6, score_5, score_4, text, censored, deformed, bad hand, watermark
+  
+  # Prompt prefix and suffix
+  prompt_pre: "Cinematic photo ,"
+  prompt_post: "Expressiveh"
+  
+  # LoRA Models Configuration
+  # Each LoRA entry should have a model ID and weight value
+  lora:
+    # Portrait Enhancement LoRA - Improves facial features and expressions
+    - model: civitai:341353@382152
+      weight: 0.5
+      
+    # Style Enhancement LoRA - Cinematic lighting and composition
+    - model: civitai:411088@1356474
+      weight: 1.0
+      
+    # Aesthetic Enhancement LoRA - Soft details and atmospheric effects
+    - model: civitai:536170@596040
+      weight: 0.4
+  
+  # API Configuration
+  runware_api_key: ""
+  runware_api_base: https://api.runware.ai/v1
+  use_prompt_enhancement: false 

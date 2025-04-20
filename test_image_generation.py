@@ -83,10 +83,10 @@ async def test_image_scene_parser():
     current_appearance = memory_system.get_recent_appearances(1)
     current_appearance_text = current_appearance[0]["description"] if current_appearance else None
     
-    parsed_scenes = ImageSceneParser.parse_images(test_response, current_appearance_text)
+    parsed_scenes = await ImageSceneParser.parse_images(test_response, current_appearance_text)
     print("\nParsed scenes:")
-    if parsed_scenes and parsed_scenes.get("images"):
-        for i, scene in enumerate(parsed_scenes["images"]):
+    if parsed_scenes:
+        for i, scene in enumerate(parsed_scenes):
             print(f"\nScene {i+1}:")
             print(scene)
     else:
@@ -110,13 +110,13 @@ async def test_combined():
     current_appearance = memory_system.get_recent_appearances(1)
     current_appearance_text = current_appearance[0]["description"] if current_appearance else None
     
-    parsed_scenes = ImageSceneParser.parse_images(test_response, current_appearance_text)
+    parsed_scenes = await ImageSceneParser.parse_images(test_response, current_appearance_text)
     
-    if parsed_scenes and parsed_scenes.get("images"):
+    if parsed_scenes:
         print("\nGenerating images from parsed scenes...")
         image_generator = ImageGenerator()
         
-        for i, scene in enumerate(parsed_scenes["images"]):
+        for i, scene in enumerate(parsed_scenes):
             print(f"\nGenerating image {i+1} from scene:")
             print(scene)
             

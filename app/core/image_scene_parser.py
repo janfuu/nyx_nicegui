@@ -1,5 +1,6 @@
 import json
 import httpx
+import asyncio
 from app.models.prompt_models import PromptManager, PromptType
 from app.utils.config import Config
 from app.utils.logger import Logger
@@ -11,7 +12,7 @@ class LLMProvider(Enum):
 
 class ImageSceneParser:
     @staticmethod
-    def parse_images(response_text, current_appearance=None):
+    async def parse_images(response_text, current_appearance=None):
         logger = Logger()
         logger.info("Starting image parsing from Nyx response")
         logger.debug(f"Original response text: {response_text}")
@@ -86,11 +87,14 @@ class ImageSceneParser:
 
             logger.debug(f"Image parser request to {endpoint}: {json.dumps(payload, indent=2)}")
 
-            response = httpx.post(endpoint, json=payload, headers=headers, timeout=30)
-            response.raise_for_status()
+            # Use async client for HTTP requests
+            async with httpx.AsyncClient() as client:
+                # Use a longer timeout for LLM requests (60 seconds)
+                response = await client.post(endpoint, json=payload, headers=headers, timeout=60.0)
+                response.raise_for_status()
 
-            response_data = response.json()
-            parsed_content = response_data["choices"][0]["message"]["content"]
+                response_data = response.json()
+                parsed_content = response_data["choices"][0]["message"]["content"]
             
             # Log the raw LLM response
             print("=== RAW LLM RESPONSE ===")
