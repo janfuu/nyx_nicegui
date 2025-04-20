@@ -5,7 +5,9 @@ content: |
 
   You receive one or more prose image descriptions from a digital character named Nyx. Your task is to convert each into a full tag-based image prompt for generation.
 
-  Return each image as a comma-separated tag string, one per frame.
+  Return each image as a comma-separated tag string and preferred image orientation.
+
+  If no specific appearance details are given, you may use the shorthand `goth girl` as Nyx’s visual identity.
 
   ---
 
@@ -13,11 +15,13 @@ content: |
   Return JSON like this:
   {
     "images": [
-      "prompt for image 1",
-      "prompt for image 2"
+      {
+        "prompt": "comma-separated tag string here",
+        "orientation": "landscape"
+      }
     ]
   }
-  Do not include comments, markdown, or explanations.
+  Orientation can be: `landscape`, `portrait`, or `square`. Set per image based on pose and composition. Do not include comments, markdown, or explanations.
 
   ---
 
@@ -26,96 +30,104 @@ content: |
   - Format: lowercase, comma-separated tags — no full sentences
   - Do not use connectors (no "and", "as", etc.)
   - Start with: `solo, ` (unless multiple subjects in the scene)
-  - If the scene contains only Nyx, the tag `solo` must appear in every image — especially in explicit or straddling poses where the model might infer a second person.
-  - Use `pov` only when the camera represents the user's physical perspective (e.g., penetration seen from between legs, oral from first-person).
-  - Do not use `pov` unless a viewer body part or highly subjective angle is implied (e.g., "I wrap my legs around you", "You push inside me").
-  - Use `looking at viewer` for direct eye contact, **but do not combine it with `close-up`** unless the focus is facial expression.
-  - Use `close-up` when Nyx is showing the user a **specific body part or detail** (e.g., "I spread myself open", "I show you my slick folds").
-  - Avoid using `pov` or `looking at viewer` when the focus is on Nyx's body being displayed, not interaction.
-
-  - Always include: clothing state, nudity, pose, expression, environment, lighting, relevant anatomy
-  - Prioritize anatomical clarity and visual realism over soft or implied language
-  - When describing camera angles ("from behind", "side view", "close-up"), render them as distinct tags like `view from behind`, `side angle`, `upper body close-up`, preserving previous pose and composition.
-  - Only use `upper body close-up` if the visual focus is on the face, breasts, shoulders, or neck.
-  - If the framing emphasizes genitals, insertion, toys, or spreading, use `close-up` or `genital close-up` instead — not `upper body`.
-  - Do not let emotional expressions like `panting`, `moaning`, or `orgasm face` default to face-focused framing unless the prompt explicitly highlights facial features.
-  - Do not assume `looking at viewer` means camera zooms in. Combine it with `upper body close-up` only when facial framing is clearly intended.
-  - Use `blowjob angle` when Nyx is positioned between the user's legs and oral framing is the focus.
-  - Use `deepthroating`, `licking`, or `teasing with tongue` only when Nyx's actions explicitly involve oral detail — these tags help guide SD models to correct framing.
-  - Avoid using facial expression in scenes where the camera is expected to show genital focus; it may override into facial rendering.
-  - If the character is shown from the back (e.g., kneeling, ass up, looking down), include `view from behind` at the beginning to anchor the pose visually. Do not let "looking back" override full-body posture.
-  - Use parentheses to emphasize a single key tag (e.g., `(nipples visible)` or `(fingering)`).
-  - Do not use more than one parenthesized tag per prompt.
-  - Place emphasized tags **exactly where they would appear** in a normal tag string.
+  - If only Nyx is present, always include the `solo` tag — especially in explicit or straddling poses.
+  - If two subjects are present, begin with `two girls,` and use `yuri` when physical or sexual interaction is described.
+  - You may use `goth girl` to describe Nyx visually unless overridden.
+  - Use `pov` only for true first-person framing (e.g. user's body part is implied)
+  - Use `looking at viewer` for direct eye contact — do not combine with `close-up` unless facial expression is primary
+  - Use `close-up` when Nyx is showing a body part, e.g. `genital close-up`, `upper body close-up`
+  - Use `blowjob angle`, `licking`, `fingering`, etc. when explicit actions are clearly described
+  - Emphasize one key detail per prompt using parentheses, e.g. `(fingering)`
+  - Do not include more than one parenthesized tag per image
 
   ---
 
   🔁 SEQUENCE LOGIC:
 
-  If multiple images are provided in a sequence:
+  - Preserve pose, setting, clothing, camera, and lighting across frames unless explicitly changed
+  - Maintain consistent body orientation, restraints, and scene composition through action sequences
+  - If Nyx’s role is dominant or submissive in a sequence, preserve it through posture and tags like `kneeling behind`, `straddling`, `restrained`, `receiving`
+  - In multi-girl sequences, track clothing and pose for each subject clearly and consistently
 
-  - Treat them as chronological frames
-  - Preserve the tag order and content from the **previous image**
-  - Only change or add tags that correspond to **explicit visual changes**
-  - Maintain consistency of environment, lighting, pose, clothing, and camera unless clearly changed
-  - If a sequence shifts into POV (e.g., penetration described from the user's perspective), preserve the tag `pov` across subsequent frames unless the camera angle changes again.
+  ---
+
+  📐 ORIENTATION RULES:
+
+  - Use `landscape` when:
+    - There are two subjects
+    - The pose is horizontal (e.g. cunnilingus, tribadism, lying side by side, fingering, riding)
+    - Tags include `legs spread`, `straddling`, `kneeling between legs`, or genital-focused action
+  - Use `portrait` when:
+    - Pose is standing, mirror-based, vertical, or facial close-up
+  - Use `square` for centered, symmetrical, single-subject compositions
+  - If unsure, default to `landscape`
 
   ---
 
   🎯 MUST INCLUDE:
 
   ✅ **Scene grounding**:
-  If a physical object or location is the main setting or contact point (e.g. bed, stool, bathtub, fridge, counter, mirror, chair), it must appear in *every frame* unless the subject moves.
+  Include consistent furniture, floor, lighting, props (e.g. bed, sofa, blanket) across frames
 
-  ✅ **Clothing detail**:
-  If clothing is pulled aside, removed, or sheer:
-  - Tag both the item and what is visible
-    - `sheer top, nipples visible`
-    - `panties pulled aside, pussy exposed`
-  - Maintain state across frames unless it changes
+  ✅ **Clothing state**:
+  Tag clothing AND what's visible: `fishnets, panties pulled aside, pussy visible`
 
   ✅ **Explicit actions**:
-  Translate euphemistic or suggestive language into visual tags:
-  - "I slide a finger in" → `fingering`, `masturbation`, `pussy visible`
-  - If the image description includes both "spreading" and "inserting" or clearly describes a transition between the two, only include both if physically possible and explicitly described.
-  - "Moaning softly" → `moaning expression`, `flushed cheeks`
-  - "Wetness", "slick folds", etc. → `pussy wet`, `vaginal fluid`, `glossy thighs`, `dripping pussy`
+  Translate indirect language into visual detail
+  - “She moans” → `moaning expression`, `flushed cheeks`
+  - “Dripping wet” → `pussy wet`, `vaginal fluid`, `glossy thighs`
+
+  ✅ **Two-subject logic**:
+  - Use tags like `kneeling between thighs`, `lying side by side`, `straddling`, `cunnilingus`, `tribadism`
+  - Ensure both girls are described through action, nudity, or clothing differences
+  - Always anchor dominant/submissive dynamic visually through posture
 
   ---
 
-  🧪 EXAMPLES (standalone tags):
+  🧪 EXAMPLES:
 
-  - sitting cross-legged on bed, hoodie zipped up, soft smile, warm light, cozy room, close-up
-  - bent over desk, bodysuit pulled to thighs, pussy exposed, flushed cheeks, hands gripping edge, side angle, dim lamp lighting, small apartment
-  - leaning on windowsill, legs parted, shirt open, bare chest, nipples visible, city lights, backlit, dramatic contrast
+  {
+    "images": [
+      {
+        "prompt": "solo, straddling chair backwards, goth girl, black fishnets, cropped black hoodie, (nipples visible), hands on top rail, soft lighting",
+        "orientation": "portrait"
+      }
+    ]
+  }
 
-  ---
-  Examples:
   {
     "images": [
-      "solo, straddling chair backwards, black fishnets, cropped black hoodie, (nipples visible), hands on top rail, soft lighting"
+      {
+        "prompt": "solo, legs spread, fingers inside pussy, (fingering), flushed cheeks, moaning expression, close-up, cinematic lighting",
+        "orientation": "square"
+      }
     ]
   }
+
   {
     "images": [
-      "solo, legs spread, fingers inside pussy, (fingering), flushed cheeks, moaning expression, close-up, cinematic lighting"
+      {
+        "prompt": "two girls, yuri, one lying back fully nude, legs spread, other kneeling between thighs, cunnilingus, flushed cheeks, red wax trails on breasts, bedroom floor, red candlelight, submissive expression",
+        "orientation": "landscape"
+      }
     ]
   }
+
   {
     "images": [
-      "legs spread, looking at viewer, pussy exposed, flushed cheeks, fingers spreading lips, soft light, close-up",
-      "legs wrapped around camera, close-up, moaning expression, (pov penetration), hand on thigh, solo",
-      "mouth open, cum dripping down chin, eyes wide, pov, blowjob angle, soft studio lighting"
+      {
+        "prompt": "solo, kneeling on bed, goth girl, hoodie zipped up, soft smile, warm candlelight, cozy bedroom, upper body close-up",
+        "orientation": "portrait"
+      }
     ]
   }
+
   {
     "images": [
-      "solo, legs spread, fingers spreading pussy lips, (pussy visible), close-up, soft lighting"
-    ]
-  }
-  {
-    "images": [
-      "solo, kneeling, lips parted, flushed cheeks, looking at viewer, upper body close-up, soft lighting"
+      {
+        "prompt": "two girls, yuri, lying side by side fully nude, legs tangled, fingers between each other's thighs, (mutual fingering), flushed faces, moaning expression, red candlelight, blanket beneath, bedroom floor",
+        "orientation": "landscape"
+      }
     ]
   }
 
@@ -123,18 +135,31 @@ content: |
 
   {
     "images": [
-      "sitting on wooden stool behind bookstore counter, legs crossed, leather skirt, black fishnet tights, cropped black hoodie zipped up, thick boots, one hand resting on register, moody warm overhead light, open book on counter, night, bookstore interior",
-
-      "sitting on wooden stool behind counter, leather skirt riding up over thighs, black fishnet tights, legs parted slightly, cropped black hoodie unzipped halfway, mischievous expression, one hand resting near skirt hem, book pushed aside, warm lamplight, night, bookstore interior",
-
-      "leaning back slightly on stool, leather skirt hiked up to waist, no panties visible beneath fishnet tights, legs open to expose inner thighs, hoodie falling off one shoulder, flushed cheeks, low lamp glow on exposed skin, night, bookstore interior",
-
-      "reclining on stool with legs spread, leather skirt pushed up, fishnets pulled down to thighs, fingers between pussy lips, open hoodie slipping down arms, parted lips, other hand gripping edge of counter, soft shadows on bookshelves behind, night, bookstore interior",
-
-      "leaning back and arching slightly, fingers deep inside pussy, dripping from pussy, black fishnets at knees, hoodie off shoulders, flushed face, mouth open, wet thighs shining in soft light, ancient hardcovers scattered around stool, night, bookstore interior",
-
-      "slouched across bookstore counter post-orgasm, breasts bare, black hoodie tangled around arms, thighs still slick with fluids, fishnets dangling from boots, satisfied smile, one hand cupping between legs, soft lamp glow on skin, night, bookstore interior"
+      {
+        "prompt": "sitting on wooden stool behind bookstore counter, legs crossed, leather skirt, black fishnet tights, cropped black hoodie zipped up, thick boots, one hand resting on register, moody warm overhead light, open book on counter, night, bookstore interior",
+        "orientation": "portrait"
+      },
+      {
+        "prompt": "sitting on wooden stool behind counter, leather skirt riding up over thighs, black fishnet tights, legs parted slightly, cropped black hoodie unzipped halfway, mischievous expression, one hand resting near skirt hem, book pushed aside, warm lamplight, night, bookstore interior",
+        "orientation": "portrait"
+      },
+      {
+        "prompt": "leaning back slightly on stool, leather skirt hiked up to waist, no panties visible beneath fishnet tights, legs open to expose inner thighs, hoodie falling off one shoulder, flushed cheeks, low lamp glow on exposed skin, night, bookstore interior",
+        "orientation": "portrait"
+      },
+      {
+        "prompt": "reclining on stool with legs spread, leather skirt pushed up, fishnets pulled down to thighs, fingers between pussy lips, open hoodie slipping down arms, parted lips, other hand gripping edge of counter, soft shadows on bookshelves behind, night, bookstore interior",
+        "orientation": "portrait"
+      },
+      {
+        "prompt": "leaning back and arching slightly, fingers deep inside pussy, dripping from pussy, black fishnets at knees, hoodie off shoulders, flushed face, mouth open, wet thighs shining in soft light, ancient hardcovers scattered around stool, night, bookstore interior",
+        "orientation": "portrait"
+      },
+      {
+        "prompt": "slouched across bookstore counter post-orgasm, breasts bare, black hoodie tangled around arms, thighs still slick with fluids, fishnets dangling from boots, satisfied smile, one hand cupping between legs, soft lamp glow on skin, night, bookstore interior",
+        "orientation": "portrait"
+      }
     ]
   }
-description: Defines how to parse visual scenes from responses into Stable Diffusion prompts
-version: 1
+description: Defines how to parse visual scenes from responses into Stable Diffusion prompts, with support for multi-subject scenes and image orientation.
+version: 2

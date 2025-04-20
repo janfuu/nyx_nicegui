@@ -160,7 +160,11 @@ def content() -> None:
                         
                         async def process_message():
                             try:
-                                response = await chat_pipeline.process_message(current_message)
+                                # Get LLM response with timeout
+                                response = await asyncio.wait_for(
+                                    chat_pipeline.process_message(current_message),
+                                    timeout=90  # 90 second timeout for LLM response
+                                )
                                 
                                 # Display assistant response with original formatting
                                 with chat_box:
@@ -281,8 +285,14 @@ def content() -> None:
                                                     
                                                     if parsed_scenes:
                                                         # Generate all images in parallel
-                                                        scene_contents = [scene['content'] if isinstance(scene, dict) else scene for scene in parsed_scenes]
-                                                        image_urls = await chat_pipeline.image_generator.generate_parallel(scene_contents)
+                                                        scene_contents = [{"prompt": scene["prompt"], "orientation": scene["orientation"]} for scene in parsed_scenes]
+                                                        print(f"Generating {len(scene_contents)} images in parallel...")
+                                                        
+                                                        # Generate all images at once with timeout
+                                                        image_urls = await asyncio.wait_for(
+                                                            chat_pipeline.image_generator.generate(scene_contents),
+                                                            timeout=90  # 90 second timeout for all images
+                                                        )
                                                         
                                                         if image_urls and len(image_urls) > 0:
                                                             # Clear existing images
@@ -325,10 +335,16 @@ def content() -> None:
                                 if response.get("appearance") and len(response["appearance"]) > 0:
                                     appearance_display.content = response["appearance"][-1]  # Show the most recent appearance update
                                     
+                            except asyncio.TimeoutError:
+                                # Handle timeout
+                                with chat_box:
+                                    ui.label("Sorry, I'm taking too long to respond. Please try again.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
+                                ui.notify("Request timed out", color="negative")
                             except Exception as e:
                                 # Handle errors
                                 with chat_box:
                                     ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
+                                ui.notify(f"Error processing message: {str(e)}", color="negative")
                                     
                             finally:
                                 # Hide thinking indicator when done

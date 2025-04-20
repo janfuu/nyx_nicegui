@@ -31,8 +31,18 @@
     },
     "image_generation": {
         "model": "civitai:443821@1478064",
-        "width": 832,
-        "height": 1216,
+        "size_portrait": {
+            "width": 832,
+            "height": 1216
+        },
+        "size_landscape": {
+            "width": 1216,
+            "height": 832
+        },
+        "size_square": {
+            "width": 1024,
+            "height": 1024
+        },
         "number_results": 1,
         "output_format": "JPG",
         "steps": 30,
@@ -43,7 +53,7 @@
         "include_cost": false,
         "prompt_weighting": "sdEmbeds",
         "default_negative_prompt": "score_6, score_5, score_4, text, censored, deformed, bad hand, watermark",
-        "prompt_pre": "Cinematic photo, ",
+        "prompt_pre": "Cinematic photo ,",
         "prompt_post": "Expressiveh",
         "lora": [
             {

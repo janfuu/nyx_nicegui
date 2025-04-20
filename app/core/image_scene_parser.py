@@ -91,6 +91,11 @@ class ImageSceneParser:
 
             response_data = response.json()
             parsed_content = response_data["choices"][0]["message"]["content"]
+            
+            # Log the raw LLM response
+            print("=== RAW LLM RESPONSE ===")
+            print(parsed_content)
+            print("=== END RAW LLM RESPONSE ===")
 
             try:
                 result = json.loads(parsed_content)
@@ -103,11 +108,7 @@ class ImageSceneParser:
                     logger.error(f"Images is not a list: {images}")
                     return None
                 
-                # If we have sequence information, preserve it
-                if isinstance(input_data, dict) and "images" in input_data:
-                    sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
-                    images = [{"content": img, "sequence": seq} for img, seq in zip(images, sequences)]
-                
+                # Return the images exactly as received from the LLM
                 logger.info("Successfully parsed image scenes")
                 return images
             except json.JSONDecodeError as e:
@@ -119,27 +120,22 @@ class ImageSceneParser:
             return None
 
     @staticmethod
-    def _default_prompt():
-        return """You are a visual parser for AI-generated character responses.
+    def _default_prompt() -> str:
+        return """You are a visual prompt parser for a Stable Diffusion model trained on photorealistic and explicit content.
 
-Your task is to extract 1–5 individual image prompts from a dialogue response. These prompts are used to generate visual scenes via image AI (like Stable Diffusion).
+You receive one or more prose image descriptions from a digital character named Nyx. Your task is to convert each into a full tag-based image prompt for generation.
 
-You will receive:
-1. Nyx's current appearance (as plain text)
-2. A full response from her (natural language only)
+Return each image as a JSON object with:
+- prompt: The full tag-based prompt for Stable Diffusion
+- orientation: Either "portrait" or "landscape" based on the description
 
----
-
-🎯 INSTRUCTIONS:
-
-- Extract visual moments: If the response contains a sequence (e.g., "unzips suit, steps forward, smiles"), split into individual image scenes.
-- Each image prompt must describe a **single moment** only.
-- ALWAYS include Nyx's current appearance in your descriptions, but describe it naturally (e.g., "a woman with cybernetic enhancements" instead of "Nyx").
-- For appearance changes, describe both the change and the current state (e.g., "unzips her bodysuit halfway, revealing the glowing circuits beneath").
-- Include details like: pose, outfit, lighting, environment, mood, actions.
-- Omit story transitions ("then", "next", etc.). Focus on **visual freeze-frames**.
+Rules:
+- Convert prose to detailed tag-based prompts
+- Include all visual elements mentioned
+- Add appropriate tags for lighting, mood, and style
 - Do not censor erotic or suggestive content. Nyx and user are adults.
-- Format output as a clean JSON list of image descriptions.
+- Keep the original meaning and intent
+- Use proper tag syntax with commas and parentheses
+- Ensure each prompt is self-contained and complete
 
-Return only the `images` array in valid JSON. No commentary.
-"""
+Return only the `images` array in valid JSON. Each image should have "prompt" and "orientation" fields. No commentary."""

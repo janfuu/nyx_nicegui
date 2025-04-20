@@ -27,11 +27,14 @@ async def test_image_generator():
     image_generator = ImageGenerator()
     
     # Test with a simple prompt
-    test_prompt = "A cyberpunk city street at night, neon lights, rain, futuristic buildings, digital art style"
+    test_prompt = {
+        "prompt": "A cyberpunk city street at night, neon lights, rain, futuristic buildings, digital art style",
+        "orientation": "landscape"
+    }
     print(f"\nGenerating image with prompt: {test_prompt}")
     
     try:
-        image_url = await image_generator.generate(test_prompt)
+        image_url = await image_generator.generate([test_prompt])
         if image_url:
             print(f"Success! Image generated at: {image_url}")
         else:
@@ -117,7 +120,18 @@ async def test_combined():
             print(f"\nGenerating image {i+1} from scene:")
             print(scene)
             
-            image_url = await image_generator.generate(scene)
+            # Convert scene to proper format if needed
+            if isinstance(scene, dict) and 'prompt' in scene:
+                # Scene is already in the right format
+                scene_data = scene
+            else:
+                # Convert to standardized format
+                scene_data = {
+                    "prompt": scene if isinstance(scene, str) else str(scene),
+                    "orientation": "portrait"  # Default orientation
+                }
+                
+            image_url = await image_generator.generate([scene_data])
             if image_url:
                 print(f"Success! Image generated at: {image_url}")
             else:

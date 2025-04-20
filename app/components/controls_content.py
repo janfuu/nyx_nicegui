@@ -313,7 +313,9 @@ def test_image_generator_parser():
                 ui.label('Parsed Scenes').classes('text-h6 q-mt-md')
                 for scene in scenes:
                     with ui.card().classes('q-mb-sm q-pa-sm bg-dark'):
-                        ui.label(scene['content'] if isinstance(scene, dict) else scene).classes('text-body2')
+                        # Display the scene content, handling different formats
+                        scene_prompt = scene.get('prompt', scene) if isinstance(scene, dict) else scene
+                        ui.label(scene_prompt).classes('text-body2')
                 
                 ui.separator()
                 
@@ -328,7 +330,8 @@ def test_image_generator_parser():
                     # First create all UI containers
                     for scene in scenes:
                         try:
-                            scene_content = scene['content'] if isinstance(scene, dict) else scene
+                            # Extract scene prompt using the format from image_scene_parser
+                            scene_prompt = scene.get('prompt', scene) if isinstance(scene, dict) else scene
                             
                             # Create a card for each image
                             with ui.card().classes('q-pa-xs'):
@@ -339,11 +342,11 @@ def test_image_generator_parser():
                                     img.visible = False
                                 
                                 with ui.row().classes('items-center justify-between q-mt-xs'):
-                                    desc = scene_content[:30] + "..." if len(scene_content) > 30 else scene_content
+                                    desc = scene_prompt[:30] + "..." if len(scene_prompt) > 30 else scene_prompt
                                     ui.label(desc).classes('text-caption text-grey-5 ellipsis')
                                 
                                 tasks.append({
-                                    'scene': scene_content,
+                                    'scene': scene,
                                     'loading': loading,
                                     'img': img,
                                     'button': container
@@ -356,11 +359,10 @@ def test_image_generator_parser():
                     
                     try:
                         # Generate all images in parallel
-                        scene_contents = [task['scene'] for task in tasks]
-                        print(f"Generating {len(scene_contents)} images in parallel...")
+                        print(f"Generating {len(scenes)} images in parallel...")
                         
-                        # Generate all images at once
-                        image_urls = await image_generator.generate_parallel(scene_contents)
+                        # Generate all images at once using the standard generate method
+                        image_urls = await image_generator.generate(scenes)
                         
                         # Update UI only once after all images are generated
                         for i, (task, image_url) in enumerate(zip(tasks, image_urls)):

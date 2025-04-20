@@ -188,11 +188,19 @@ class ChatPipeline:
                 
                 if parsed_scenes:
                     # Generate all images in parallel
-                    scene_contents = [scene['content'] if isinstance(scene, dict) else scene for scene in parsed_scenes]
-                    image_urls = await asyncio.wait_for(
-                        self.image_generator.generate_parallel(scene_contents),
-                        timeout=90  # 90 second timeout for all images
-                    )
+                    scene_contents = []
+                    for scene in parsed_scenes:
+                        if isinstance(scene, dict) and ('content' in scene or 'prompt' in scene):
+                            # Already has the right structure
+                            scene_contents.append(scene)
+                        else:
+                            # Convert to proper format
+                            scene_contents.append({
+                                "prompt": scene if isinstance(scene, str) else str(scene),
+                                "orientation": "portrait"  # Default orientation
+                            })
+                    
+                    image_urls = await self.image_generator.generate(scene_contents)
                     
                     # Process results
                     for i, image_url in enumerate(image_urls):
@@ -200,7 +208,7 @@ class ChatPipeline:
                             sequence = image_tags[i]["sequence"] if i < len(image_tags) else i + 1
                             generated_images.append({
                                 "url": image_url,
-                                "description": scene_contents[i],
+                                "description": scene_contents[i].get("content", scene_contents[i].get("prompt", "Generated image")),
                                 "id": f"img_{int(time.time())}_{i}",
                                 "sequence": sequence
                             })
