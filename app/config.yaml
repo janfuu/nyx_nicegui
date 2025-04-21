@@ -28,7 +28,20 @@ llm:
   use_streaming: false
   
   parser_provider: openrouter
-  parser_model: openai/gpt-4o
+  parser_model: mistralai/mistral-large-2411
+
+qdrant:
+  host: localhost
+  port: 6333
+  collections:
+    images:
+      name: nyx_images
+      vector_size: 512
+      distance: cosine
+    memories:
+      name: nyx_memories
+      vector_size: 1536
+      distance: cosine
 
 image_generation:
   # Main model to use for image generation
@@ -49,13 +62,13 @@ image_generation:
   output_format: JPG
   steps: 30
   cfg_scale: 7.0
-  clipSkip: 2
+  clipSkip: 0
   scheduler: Default
   output_type: 
     - URL
   include_cost: false
   prompt_weighting: sdEmbeds
-  default_negative_prompt: score_6, score_5, score_4, text, censored, deformed, bad hand, watermark
+  default_negative_prompt: "" #score_6, score_5, score_4, text, censored, deformed, bad hand, watermark
   
   # Prompt prefix and suffix
   prompt_pre: "Cinematic photo ,"
@@ -64,17 +77,29 @@ image_generation:
   # LoRA Models Configuration
   # Each LoRA entry should have a model ID and weight value
   lora:
-    # Portrait Enhancement LoRA - Improves facial features and expressions
+    # Expressiveh
     - model: civitai:341353@382152
       weight: 0.5
       
-    # Style Enhancement LoRA - Cinematic lighting and composition
-    - model: civitai:411088@1356474
-      weight: 1.0
+    # Detail Enhancer 
+#    - model: civitai:411088@1356474
+#      weight: 1.0
+
+    # Vixons classic art style - detailed painting
+    - model: civitai:888250@399443
+      weight: 0.3
+
+    # Vixons pony style - detailed 
+    - model: civitai:888213@486749
+      weight: 0.3
+
+    # Gothgirl XL v2
+#    - model: civitai:248965@461295
+#      weight: 0.8
       
     # Aesthetic Enhancement LoRA - Soft details and atmospheric effects
-    - model: civitai:536170@596040
-      weight: 0.4
+#    - model: civitai:536170@596040
+#      weight: 1
   
   # API Configuration
   runware_api_key: ""

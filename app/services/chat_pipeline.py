@@ -207,12 +207,44 @@ class ChatPipeline:
                     for i, image_url in enumerate(image_urls):
                         if image_url:
                             sequence = image_tags[i]["sequence"] if i < len(image_tags) else i + 1
+                            # Extract UUID from URL or response
+                            # Example URL: https://im.runware.ai/image/ws/2/ii/5284da1a-25a9-458c-a681-4043f2a8057c.jpg
+                            try:
+                                # Try to extract UUID from the URL path
+                                image_uuid = image_url.split('/')[-1].split('.')[0]
+                            except:
+                                # Fallback to timestamp-based ID
+                                image_uuid = f"img_{int(time.time())}_{i}"
+                            
+                            # Get the original image content from image_tags if available
+                            original_content = ""
+                            if i < len(image_tags):
+                                original_content = image_tags[i]["content"]
+                                
                             generated_images.append({
                                 "url": image_url,
                                 "description": scene_contents[i].get("content", scene_contents[i].get("prompt", "Generated image")),
-                                "id": f"img_{int(time.time())}_{i}",
+                                "id": image_uuid,
                                 "sequence": sequence
                             })
+                            
+                            # Prepare scene data with original content
+                            scene_data = scene_contents[i].copy() if isinstance(scene_contents[i], dict) else {"prompt": scene_contents[i]}
+                            scene_data["original_content"] = original_content
+                            
+                            # Offload vector embedding + Qdrant storage
+                            asyncio.create_task(
+                                self._process_image_for_qdrant(
+                                    scene_data=scene_data,
+                                    image_url=image_url,
+                                    mood=current_mood,
+                                    appearance=current_appearance_text,
+                                    location=current_location_text,
+                                    image_id=image_uuid
+                                )
+                            )
+
+                        
                 
                 # Sort images by sequence number
                 generated_images.sort(key=lambda x: x["sequence"])
@@ -252,3 +284,56 @@ class ChatPipeline:
                 await self.image_scene_parser.parse_images(image_content)
                 
         return parsed
+    
+    async def _process_image_for_qdrant(self, scene_data, image_url, mood, appearance, location, image_id):
+        try:
+            self.logger.info(f"[Qdrant] Starting image processing for {image_id}")
+            from app.main import get_embedder
+            from app.services.qdrant_client import QdrantImageStore
+
+            embedder = get_embedder()
+            qdrant = QdrantImageStore()
+            
+            self.logger.info(f"[Qdrant] Embedding image from URL: {image_url}")
+            image_vector, thumbnail_b64 = embedder.embed_image_from_url(image_url)
+            self.logger.info(f"[Qdrant] Image embedding completed successfully: {image_vector is not None}")
+            
+            # Get the prompt
+            parsed_prompt = scene_data.get("prompt", "")
+            # Get the original prompt if available
+            original_prompt = scene_data.get("original_content", "")
+            if not original_prompt and "content" in scene_data:
+                original_prompt = scene_data.get("content", "")
+            
+            self.logger.info(f"[Qdrant] Embedding prompt: {parsed_prompt[:30]}...")
+            prompt_vector = embedder.embed_prompt(parsed_prompt)
+            self.logger.info(f"[Qdrant] Prompt embedding completed successfully: {prompt_vector is not None}")
+
+            if image_vector is not None and prompt_vector is not None:
+                self.logger.info(f"[Qdrant] Preparing payload for storage")
+                payload = {
+                    "prompt": parsed_prompt,
+                    "original_prompt": original_prompt,
+                    "url": image_url,
+                    "thumbnail_b64": thumbnail_b64,
+                    "mood": mood,
+                    "appearance": appearance,
+                    "location": location,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "model": "runware",
+                    "rating": 0
+                }
+                
+                self.logger.info(f"[Qdrant] Storing image {image_id} in Qdrant")
+                result = await qdrant.store_image_embedding(
+                    image_id=image_id,
+                    vector=image_vector.tolist(),
+                    payload=payload
+                )
+                self.logger.info(f"[Qdrant] Storage completed with result: {result}")
+            else:
+                self.logger.error(f"[Qdrant] Failed to create embeddings: image_vector={image_vector is not None}, prompt_vector={prompt_vector is not None}")
+        except Exception as e:
+            self.logger.error(f"[Qdrant] Failed to process image: {e}")
+            import traceback
+            self.logger.error(f"[Qdrant] Traceback: {traceback.format_exc()}")

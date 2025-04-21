@@ -54,3 +54,20 @@ nyx_nicegui/
 
 MIT License
 
+## Qdrant Setup
+
+### Using Docker (Recommended)
+```bash
+docker run -p 6333:6333 -p 6334:6334 \
+    -v $(pwd)/qdrant_data:/qdrant/storage \
+    qdrant/qdrant
+```
+
+### Without Docker
+1. Download Qdrant from https://qdrant.tech/documentation/quick-start/
+2. Configure it to run on port 6333
+3. Start the server
+
+### Configuration
+Qdrant settings can be modified in `app/config.yaml` under the `qdrant` section.
+

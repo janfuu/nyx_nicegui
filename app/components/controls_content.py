@@ -11,31 +11,72 @@ from app.core.image_generator import ImageGenerator
 import asyncio
 from typing import List
 import yaml
+import numpy as np
+import uuid  # Add this import
+from app.services.qdrant_client import QdrantImageStore
+from app.main import get_embedder
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
     def __init__(self) -> None:
         with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
             ui.keyboard(self._handle_key)
-            with ui.row().classes('w-full h-full items-center justify-between'):
-                # Left arrow
-                with ui.button(on_click=lambda: self._navigate(-1)).props('flat round color=white').classes('ml-4'):
-                    ui.icon('chevron_left').classes('text-4xl')
+            with ui.column().classes('w-full h-full items-center justify-between'):
+                # Top navigation row
+                with ui.row().classes('w-full items-center justify-between'):
+                    # Left arrow
+                    with ui.button(on_click=lambda: self._navigate(-1)).props('flat round color=white').classes('ml-4'):
+                        ui.icon('chevron_left').classes('text-4xl')
+                    
+                    # Counter in the middle
+                    self.counter = ui.label().classes('text-white text-h6')
+                    
+                    # Right arrow
+                    with ui.button(on_click=lambda: self._navigate(1)).props('flat round color=white').classes('mr-4'):
+                        ui.icon('chevron_right').classes('text-4xl')
                 
                 # Center container for image
-                with ui.column().classes('flex-grow items-center justify-center h-full'):
-                    self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-[90vh]')
-                    self.counter = ui.label().classes('mt-2 text-white')
+                with ui.column().classes('flex-grow items-center justify-center h-[75vh] w-full'):
+                    self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-full max-w-full')
                 
-                # Right arrow
-                with ui.button(on_click=lambda: self._navigate(1)).props('flat round color=white').classes('mr-4'):
-                    ui.icon('chevron_right').classes('text-4xl')
+                # Bottom info and controls
+                with ui.column().classes('w-full bg-gray-900 p-4 rounded-t-lg'):
+                    # Prompt information
+                    with ui.row().classes('w-full'):
+                        with ui.column().classes('w-full gap-2'):
+                            self.original_prompt = ui.markdown("").classes('text-white text-sm')
+                            self.parsed_prompt = ui.markdown("").classes('text-white text-sm')
+                    
+                    # Rating buttons
+                    with ui.row().classes('w-full justify-center items-center gap-4 mt-4'):
+                        self.thumbs_up = ui.button(on_click=self._rate_positive).props('flat round color=green').classes('text-2xl')
+                        with self.thumbs_up:
+                            ui.icon('thumb_up').classes('text-2xl')
+                        
+                        self.neutral = ui.button(on_click=self._rate_neutral).props('flat round color=blue-grey').classes('text-2xl')
+                        with self.neutral:
+                            ui.icon('thumbs_up_down').classes('text-2xl')
+                        
+                        self.thumbs_down = ui.button(on_click=self._rate_negative).props('flat round color=red').classes('text-2xl')
+                        with self.thumbs_down:
+                            ui.icon('thumb_down').classes('text-2xl')
+                        
+                        # Storage status indicator
+                        self.status = ui.label("").classes('text-white ml-4')
         
-        self.image_list: List[str] = []
+        self.image_list = []
+        self.prompt_list = []
+        self.parsed_prompt_list = []
+        self.id_list = []
+        self.current_index = 0
 
-    def add_image(self, thumb_url: str, orig_url: str) -> ui.image:
+    def add_image(self, thumb_url: str, orig_url: str, image_id: str, original_prompt: str, parsed_prompt: str) -> ui.image:
         """Place a thumbnail image in the UI and make it clickable to enlarge."""
         self.image_list.append(orig_url)
+        self.prompt_list.append(original_prompt)
+        self.parsed_prompt_list.append(parsed_prompt)
+        self.id_list.append(image_id)
+        
         with ui.button(on_click=lambda: self._open(orig_url)).props('flat dense square'):
             return ui.image(thumb_url)
 
@@ -51,7 +92,7 @@ class Lightbox:
 
     def _navigate(self, direction: int) -> None:
         """Navigate through images. direction should be -1 for previous or 1 for next."""
-        current_idx = self.image_list.index(self.large_image.source)
+        current_idx = self.current_index
         new_idx = current_idx + direction
         if 0 <= new_idx < len(self.image_list):
             self._open(self.image_list[new_idx])
@@ -59,8 +100,127 @@ class Lightbox:
     def _open(self, url: str) -> None:
         self.large_image.set_source(url)
         current_idx = self.image_list.index(url)
+        self.current_index = current_idx
         self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
+        
+        # Update prompt information
+        if current_idx < len(self.prompt_list):
+            self.original_prompt.content = f"**Original prompt:** {self.prompt_list[current_idx]}"
+        
+        if current_idx < len(self.parsed_prompt_list):
+            self.parsed_prompt.content = f"**Parsed prompt:** {self.parsed_prompt_list[current_idx]}"
+        
+        # Reset status
+        self.status.text = ""
+        
         self.dialog.open()
+    
+    async def _rate_positive(self):
+        """Rate the current image positively and store it in Qdrant"""
+        await self._rate_image(1)
+    
+    async def _rate_neutral(self):
+        """Rate the current image neutrally and store in Qdrant with neutral rating"""
+        await self._rate_image(0)
+    
+    async def _rate_negative(self):
+        """Rate the current image negatively and store in Qdrant with negative rating"""
+        await self._rate_image(-1)
+        
+    async def _rate_image(self, rating_value):
+        """Store image in Qdrant with specified rating"""
+        try:
+            current_idx = self.current_index
+            if current_idx < 0 or current_idx >= len(self.id_list):
+                return
+                
+            image_id = self.id_list[current_idx]
+            image_url = self.image_list[current_idx]
+            original_prompt = self.prompt_list[current_idx]
+            parsed_prompt = self.parsed_prompt_list[current_idx]
+            
+            # Determine the appropriate rating message
+            if rating_value > 0:
+                rating_message = "Positively"
+            elif rating_value < 0:
+                rating_message = "Negatively" 
+            else:
+                rating_message = "Neutrally"
+                
+            self.status.text = f"{rating_message} rating image..."
+            
+            # Get embedder and Qdrant client
+            from app.main import get_embedder
+            from app.services.qdrant_client import QdrantImageStore
+            
+            embedder = get_embedder()
+            qdrant = QdrantImageStore()
+            
+            # First check if the image already exists in Qdrant
+            update_success = False
+            try:
+                # Attempt to update the rating first
+                # If it succeeds, the image is already in Qdrant
+                result = await qdrant.update_rating(image_id, rating_value)
+                if result:
+                    update_success = True
+                    self.status.text = f"Rating updated successfully ✓"
+                    return
+            except Exception as check_e:
+                # Only print if it's not a 404 error (expected when image doesn't exist yet)
+                if "404" not in str(check_e) and "Not found" not in str(check_e):
+                    print(f"Unexpected error checking image in Qdrant: {str(check_e)}")
+            
+            if update_success:
+                return
+                
+            # Get current appearance and mood
+            from app.core.memory_system import MemorySystem
+            memory_system = MemorySystem()
+            current_appearance = memory_system.get_recent_appearances(1)
+            current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+            current_mood = memory_system.get_current_mood()
+            current_location = memory_system.get_recent_locations(1)
+            current_location_text = current_location[0]["description"] if current_location else None
+            
+            # Embed the image
+            image_vector, thumbnail_b64 = embedder.embed_image_from_url(image_url)
+            if image_vector is None:
+                self.status.text = "Failed to embed image"
+                return
+                
+            # Prepare payload
+            import time
+            payload = {
+                "prompt": parsed_prompt,
+                "original_prompt": original_prompt,  # Store both prompts
+                "url": image_url,
+                "thumbnail_b64": thumbnail_b64,
+                "mood": current_mood,
+                "appearance": current_appearance_text,
+                "location": current_location_text,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "model": "runware",
+                "rating": rating_value
+            }
+            
+            # Store in Qdrant
+            result = await qdrant.store_image_embedding(
+                image_id=image_id,
+                vector=image_vector.tolist(),
+                payload=payload
+            )
+            
+            if result:
+                self.status.text = f"Image stored with {rating_value} rating ✓"
+            else:
+                self.status.text = "Storage failed ✗"
+                
+        except Exception as e:
+            import traceback
+            print(f"Error storing rated image: {str(e)}")
+            print(traceback.format_exc())
+            self.status.text = f"Error: {str(e)}"
 
 def preview_system_prompt():
     """Generate and display a preview of the combined system prompt"""
@@ -296,6 +456,10 @@ def test_image_generator_parser():
     image_generator = ImageGenerator()
     lightbox = Lightbox()
     
+    # Import Qdrant and use pre-initialized embedder
+    qdrant_store = QdrantImageStore()
+    embedder = get_embedder()
+    
     with ui.card().classes('w-full p-4'):
         ui.label('Test Image Generation').classes('text-xl font-bold mb-4')
         
@@ -364,6 +528,17 @@ def test_image_generator_parser():
                         # Generate all images at once using the standard generate method
                         image_urls = await image_generator.generate(scenes)
                         
+                        # Get current appearance and mood for Qdrant storage
+                        current_appearance = memory_system.get_recent_appearances(1)
+                        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+                        current_mood = memory_system.get_current_mood()
+                        current_location = memory_system.get_recent_locations(1)
+                        current_location_text = current_location[0]["description"] if current_location else None
+                        
+                        # Get the image tags from the original context
+                        # This needs to be retrieved from run_test's image_tags
+                        original_image_tags = getattr(run_test, 'image_tags', [])
+                        
                         # Update UI only once after all images are generated
                         for i, (task, image_url) in enumerate(zip(tasks, image_urls)):
                             if image_url:
@@ -371,8 +546,36 @@ def test_image_generator_parser():
                                 task['loading'].visible = False
                                 task['img'].set_source(image_url)
                                 task['img'].visible = True
-                                lightbox.image_list.append(image_url)
+                                
+                                # Extract UUID from URL path for image ID
+                                try:
+                                    image_uuid = image_url.split('/')[-1].split('.')[0]
+                                except:
+                                    from datetime import datetime
+                                    image_uuid = f"img_{int(datetime.now().timestamp())}_{i}"
+                                
+                                # Get original and parsed prompts
+                                scene_data = task['scene']
+                                original_prompt = ""
+                                if i < len(original_image_tags):
+                                    original_prompt = original_image_tags[i]["content"]
+                                
+                                parsed_prompt = scene_data.get('prompt', scene_data) if isinstance(scene_data, dict) else str(scene_data)
+                                
+                                # Add to lightbox with ID and prompts
+                                lightbox.add_image(
+                                    thumb_url=image_url,
+                                    orig_url=image_url,
+                                    image_id=image_uuid,
+                                    original_prompt=original_prompt,
+                                    parsed_prompt=parsed_prompt
+                                )
+                                
+                                # Set up click handler
                                 task['button'].on('click', lambda url=image_url: lightbox._open(url))
+                                
+                                # Show success notification
+                                ui.notify(f"Image {i+1} generated successfully", type='positive')
                             else:
                                 task['loading'].visible = False
                                 ui.label('Generation failed').classes('text-caption text-negative')
@@ -380,6 +583,22 @@ def test_image_generator_parser():
                     except Exception as e:
                         print(f"Error in parallel generation: {str(e)}")
                         ui.notify(f"Error generating images: {str(e)}", type='negative')
+        
+        async def run_and_notify(i, scene_prompt, image_url, image_uuid, current_mood, current_appearance_text, current_location_text):
+            # Simple notification without attempting Qdrant storage
+            ui.notify(f"Image {i+1} generated successfully", type='positive')
+            print(f"Generated image {i+1}: {image_url}")
+            print(f"Note: Qdrant storage is handled by the main chat pipeline, not the test UI")
+        
+        async def store_image_in_qdrant(scene_prompt, image_url, image_id, mood, appearance, location):
+            """
+            This function is intentionally disabled in the test UI.
+            Qdrant storage is properly handled by ChatPipeline._process_image_for_qdrant during normal operation.
+            """
+            print(f"[TEST UI] Image would be stored in Qdrant during normal operation: {image_id}")
+            print(f"[TEST UI] Image storage is handled by ChatPipeline._process_image_for_qdrant")
+            # Return immediately without attempting storage
+            return
         
         async def run_test(e):
             """Run the test with the current input"""
@@ -420,6 +639,9 @@ def test_image_generator_parser():
                     "location": current_location_text,
                     "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
                 }
+                
+                # Store image_tags as an attribute to access in generate_images
+                run_test.image_tags = image_context["images"]
                 
                 # Process through image parser with periodic UI updates
                 try:

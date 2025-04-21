@@ -13,3 +13,8 @@ runware
 python-dotenv>=1.0.0
 aiohttp
 pyyaml>=6.0
+qdrant-client>=1.1.1
+transformers>=4.25.0
+torch>=1.13.0
+torchvision>=0.14.0
+Pillow>=9.3.0

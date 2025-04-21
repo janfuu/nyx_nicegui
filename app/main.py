@@ -2,6 +2,7 @@ import os
 import json
 from pathlib import Path
 from nicegui import app, ui
+import asyncio
 
 # Import your components
 from . import header
@@ -15,6 +16,21 @@ from .models.database import Database
 from .core.memory_system import MemorySystem
 from .core.world_manager import WorldManager
 from .services.chat_pipeline import ChatPipeline
+
+# Import Qdrant initialization
+from .utils.qdrant_init import initialize_qdrant
+
+# Create singleton for embedding service
+from .services.embedding_service import Embedder
+# Global embedder instance that will be initialized once
+_embedder_instance = None
+
+# Getter for the embedder that initializes it if needed
+def get_embedder():
+    global _embedder_instance
+    if _embedder_instance is None:
+        _embedder_instance = Embedder()
+    return _embedder_instance
 
 # Initialize database
 db = Database()
@@ -41,6 +57,37 @@ if current_state["location"] == "Default Location":
     )
 
 chat_pipeline = ChatPipeline()
+
+# Initialize embedder and Qdrant at startup
+async def _initialize_services():
+    global _embedder_instance
+    print("Starting initialization of embedding models and services...")
+    
+    # Initialize Qdrant collections
+    try:
+        qdrant_initialized = await initialize_qdrant()
+        if qdrant_initialized:
+            print("Qdrant collections initialized successfully")
+        else:
+            print("Warning: Qdrant initialization failed. Vector storage may not work properly.")
+    except Exception as e:
+        print(f"Error initializing Qdrant: {str(e)}")
+    
+    # Initialize the embedding model (CLIP)
+    try:
+        _embedder_instance = Embedder()
+        # Test with a simple embedding to make sure everything is loaded
+        _ = _embedder_instance.embed_prompt("Test embedding initialization")
+        print("Embedding models loaded successfully")
+    except Exception as e:
+        print(f"Error initializing embedding models: {str(e)}")
+        _embedder_instance = None
+
+# Register startup handler only when running this file directly
+def setup_startup_handler():
+    @app.on_startup
+    async def startup():
+        await _initialize_services()
 
 @app.post('/api/process_message')
 async def process_message(request):
@@ -118,7 +165,14 @@ def handle_shutdown():
 
 app.on_shutdown(handle_shutdown)
 
+# Only register the startup handler if this file is run directly
 if __name__ in {"__main__", "__mp_main__"}:
+    # Setup startup handler
+    setup_startup_handler()
+    
+    # Initialize services manually when running as a module
+    asyncio.run(_initialize_services())
+    
     # For dev
     ui.run(storage_secret="myStorageSecret", title=appName, port=appPort, favicon='🚀')
 
