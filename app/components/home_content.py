@@ -110,6 +110,9 @@ def content() -> None:
     initial_thoughts = memory_system.get_recent_thoughts(1)
     initial_appearances = memory_system.get_recent_appearances(1)
     
+    # Test mode flag
+    test_mode = False
+    
     # Reference to the portrait image element for updating
     portrait_ref = None
     
@@ -161,8 +164,28 @@ def content() -> None:
         # Center Card
         with ui.card().classes('flex-2 w-[800px]'):
             with ui.column().classes('h-full w-full gap-4'):
+                # Add test mode toggle at the top of the chat
+                with ui.row().classes('w-full justify-between items-center mb-2'):
+                    ui.label('Chat Interface').classes('text-lg font-bold')
+                    
+                    with ui.row().classes('items-center gap-2'):
+                        test_toggle = ui.switch('Test Mode', on_change=lambda e: toggle_test_mode(e.value))
+                        test_toggle.props('color=purple dense')
+                        test_help = ui.button(icon='help_outline').props('flat round dense').classes('text-xs')
+                        
+                        def show_test_help():
+                            ui.notify(
+                                'Test Mode echoes input as response without calling the LLM. '
+                                'Use <image>description</image> tags to test image generation.',
+                                type='info',
+                                close_button='OK',
+                                timeout=10000
+                            )
+                        
+                        test_help.on_click(show_test_help)
+                
                 # Chat display area - use a simple scrollable container
-                chat_container = ui.scroll_area().classes('h-[600px] w-full')
+                chat_container = ui.scroll_area().classes('h-[560px] w-full')  # Slightly reduced height to accommodate test mode toggle
                 with chat_container:
                     chat_box = ui.column().classes('p-6 bg-[#1a1a1a] rounded w-full')
                 
@@ -200,11 +223,47 @@ def content() -> None:
                         
                         async def process_message():
                             try:
-                                # Get LLM response with timeout
-                                response = await asyncio.wait_for(
-                                    chat_pipeline.process_message(current_message),
-                                    timeout=90  # 90 second timeout for LLM response
-                                )
+                                if test_mode:
+                                    # In test mode, create a mock response that echoes the input
+                                    # Extract image tags if present
+                                    import re
+                                    image_tags = re.findall(r'<image>(.*?)</image>', current_message, re.DOTALL)
+                                    
+                                    mock_response = {
+                                        'text': f"Echo: {current_message}",
+                                        'thoughts': ["This is a test thought from echo mode"],
+                                        'mood': "Testing and curious",
+                                        'appearance': ["Current test appearance with subtle glow effects"],
+                                        'images': []
+                                    }
+                                    
+                                    # If image tags were found, create mock image data
+                                    if image_tags:
+                                        # Use placeholder images from the assets folder
+                                        image_urls = [
+                                            '/assets/placeholder_1.jpg',
+                                            '/assets/placeholder_2.jpg',
+                                            '/assets/placeholder_3.jpg',
+                                            '/assets/placeholder_4.jpg'
+                                        ]
+                                        
+                                        # Create mock image entries (use fewer images than tags if we have more tags)
+                                        for i, tag in enumerate(image_tags):
+                                            if i < len(image_urls):
+                                                mock_response['images'].append({
+                                                    'url': image_urls[i % len(image_urls)],  # Cycle through placeholders
+                                                    'description': tag.strip(),
+                                                    'original_prompt': tag.strip(),
+                                                    'parsed_prompt': f"Parsed version of: {tag.strip()}"
+                                                })
+                                    
+                                    response = mock_response
+                                else:
+                                    # Get LLM response with timeout in normal mode
+                                    response = await asyncio.wait_for(
+                                        chat_pipeline.process_message(current_message),
+                                        timeout=90  # 90 second timeout for LLM response
+                                    )
                                 
                                 # Display assistant response with original formatting
                                 with chat_box:
@@ -462,3 +521,14 @@ def content() -> None:
                 
                 # Add controls for world management
                 ui.button('Change Location', on_click=lambda: ui.notify('Location change functionality to be implemented')).classes('mt-4')
+
+    # Function to toggle test mode - moved inside content() function to fix nonlocal binding
+    def toggle_test_mode(value):
+        nonlocal test_mode
+        test_mode = value
+        ui.notify(
+            f"Test mode {'enabled' if test_mode else 'disabled'}. " +
+            ("Responses will echo input without calling the LLM." if test_mode else "Using normal LLM processing."),
+            type='info' if test_mode else 'positive',
+            timeout=3000
+        )
