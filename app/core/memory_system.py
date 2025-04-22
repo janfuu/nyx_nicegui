@@ -216,11 +216,22 @@ class MemorySystem:
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
+        # Debug logging
+        from app.utils.logger import Logger
+        logger = Logger()
+        logger.info(f"Adding appearance to database: {description[:50]}...")
+        
         cursor.execute(
             "INSERT INTO appearance (description) VALUES (?)",
             (description,)
         )
         conn.commit()
+        
+        # Log the current appearance
+        cursor.execute("SELECT id FROM appearance ORDER BY timestamp DESC LIMIT 1")
+        result = cursor.fetchone()
+        if result:
+            logger.info(f"Added appearance with ID: {result[0]}")
         return cursor.lastrowid
 
     def get_recent_appearances(self, limit=10):
@@ -239,8 +250,19 @@ class MemorySystem:
         return appearances
 
     def add_appearance_change(self, change: str):
-        """Add an appearance change to the list"""
+        """Add an appearance change to the list and database"""
+        # Debug logging
+        from app.utils.logger import Logger
+        logger = Logger()
+        logger.info(f"Recording appearance change: {change[:50]}...")
+        
+        # Add to in-memory list for tracking during the session
         self.appearance_changes.append(change)
+        
+        # Also add to the database for persistence
+        row_id = self.add_appearance(change)
+        logger.info(f"Stored appearance change in database with ID: {row_id}")
+        return row_id
         
     def update_location(self, location: str):
         """Update the current location"""

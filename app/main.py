@@ -1,8 +1,23 @@
 import os
 import json
+import traceback
 from pathlib import Path
 from nicegui import app, ui
 import asyncio
+import logging
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("logs/app.log"),
+        logging.StreamHandler()
+    ]
+)
+# Reduce noise from watchfiles logs
+logging.getLogger('watchfiles').setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 # Import your components
 from . import header
@@ -165,6 +180,33 @@ def handle_shutdown():
 
 app.on_shutdown(handle_shutdown)
 
+# Setup custom error handling for background tasks
+@app.exception_handler(Exception)
+async def custom_exception_handler(request, exc):
+    # Skip logging for common WebSocket disconnection errors
+    error_text = str(exc)
+    if any(msg in error_text for msg in [
+        'Session is disconnected',
+        'WebSocket is disconnected',
+        'Connection closed',
+        'connection already closed'
+    ]):
+        # Just return a response without logging for common disconnection errors
+        return app.response_class(
+            content={"error": "WebSocket disconnected"},
+            status_code=500
+        )
+    
+    # Log other, potentially more serious errors
+    logger.error(f"Unhandled exception: {error_text}")
+    logger.error(traceback.format_exc())
+    
+    # Return a response to prevent connection loss
+    return app.response_class(
+        content={"error": "An internal error occurred"},
+        status_code=500
+    )
+
 # Only register the startup handler if this file is run directly
 if __name__ in {"__main__", "__mp_main__"}:
     # Setup startup handler
@@ -174,13 +216,37 @@ if __name__ in {"__main__", "__mp_main__"}:
     asyncio.run(_initialize_services())
     
     # For dev
-    ui.run(storage_secret="myStorageSecret", title=appName, port=appPort, favicon='🚀')
+    ui.run(
+        storage_secret="myStorageSecret", 
+        title=appName, 
+        port=appPort, 
+        favicon='🚀',
+        reconnect_timeout=120  # Increase reconnect timeout to 120 seconds
+    )
 
     # For prod
-    #ui.run(storage_secret="myStorageSecret", title=appName, port=appPort, favicon='🚀')
+    #ui.run(
+    #    storage_secret="myStorageSecret", 
+    #    title=appName, 
+    #    port=appPort, 
+    #    favicon='🚀',
+    #    reconnect_timeout=120  # Increase reconnect timeout to 120 seconds
+    #)
 
     # For native
-    #ui.run(storage_secret="myStorageSecret", title=appName, port=appPort, favicon='🚀', reload=False, native=True, window_size=(1600,900))
+    #ui.run(
+    #    storage_secret="myStorageSecret", 
+    #    title=appName, 
+    #    port=appPort, 
+    #    favicon='🚀', 
+    #    reload=False, 
+    #    native=True, 
+    #    window_size=(1600,900),
+    #    reconnect_timeout=120  # Increase reconnect timeout to 120 seconds
+    #)
 
     # For Docker
-    #ui.run(storage_secret=os.environ['STORAGE_SECRET'])
+    #ui.run(
+    #    storage_secret=os.environ['STORAGE_SECRET'],
+    #    reconnect_timeout=120  # Increase reconnect timeout to 120 seconds
+    #)

@@ -1,4 +1,4 @@
-from nicegui import ui, app, events
+from nicegui import ui, app, events, background_tasks
 from ..services.chat_pipeline import ChatPipeline
 import time
 import asyncio
@@ -37,6 +37,23 @@ class Lightbox:
                         with ui.column().classes('w-full gap-2'):
                             self.original_prompt = ui.markdown("").classes('text-white text-sm')
                             self.parsed_prompt = ui.markdown("").classes('text-white text-sm')
+                    
+                    # Rating buttons
+                    with ui.row().classes('w-full justify-center items-center gap-4 mt-4'):
+                        self.thumbs_up = ui.button(on_click=self._rate_positive).props('flat round color=green').classes('text-2xl')
+                        with self.thumbs_up:
+                            ui.icon('thumb_up').classes('text-2xl')
+                        
+                        self.neutral = ui.button(on_click=self._rate_neutral).props('flat round color=blue-grey').classes('text-2xl')
+                        with self.neutral:
+                            ui.icon('thumbs_up_down').classes('text-2xl')
+                        
+                        self.thumbs_down = ui.button(on_click=self._rate_negative).props('flat round color=red').classes('text-2xl')
+                        with self.thumbs_down:
+                            ui.icon('thumb_down').classes('text-2xl')
+                        
+                        # Storage status indicator
+                        self.status = ui.label("").classes('text-white ml-4')
         
         self.image_list = []
         self.prompt_list = []
@@ -100,11 +117,121 @@ class Lightbox:
             else:
                 self.parsed_prompt.content = ""
             
+            # Reset status
+            self.status.text = ""
+            
             self.dialog.open()
         except Exception as e:
             print(f"Error in lightbox._open: {str(e)}")
             import traceback
             print(traceback.format_exc())
+    
+    async def _rate_positive(self):
+        """Rate the current image positively and store it in Qdrant"""
+        await self._rate_image(1)
+    
+    async def _rate_neutral(self):
+        """Rate the current image neutrally and store in Qdrant with neutral rating"""
+        await self._rate_image(0)
+    
+    async def _rate_negative(self):
+        """Rate the current image negatively and store in Qdrant with negative rating"""
+        await self._rate_image(-1)
+        
+    async def _rate_image(self, rating_value):
+        """Store image in Qdrant with specified rating"""
+        try:
+            current_idx = self.current_index
+            if current_idx < 0 or current_idx >= len(self.id_list):
+                return
+                
+            image_id = self.id_list[current_idx]
+            image_url = self.image_list[current_idx]
+            original_prompt = self.prompt_list[current_idx]
+            parsed_prompt = self.parsed_prompt_list[current_idx]
+            
+            # Determine the appropriate rating message
+            if rating_value > 0:
+                rating_message = "Positively"
+            elif rating_value < 0:
+                rating_message = "Negatively" 
+            else:
+                rating_message = "Neutrally"
+                
+            self.status.text = f"{rating_message} rating image..."
+            
+            # Get embedder and Qdrant client
+            from app.main import get_embedder
+            from app.services.qdrant_client import QdrantImageStore
+            
+            embedder = get_embedder()
+            qdrant = QdrantImageStore()
+            
+            # First check if the image already exists in Qdrant
+            update_success = False
+            try:
+                # Attempt to update the rating first
+                # If it succeeds, the image is already in Qdrant
+                result = await qdrant.update_rating(image_id, rating_value)
+                if result:
+                    update_success = True
+                    self.status.text = f"Rating updated successfully ✓"
+                    return
+            except Exception as check_e:
+                # Only print if it's not a 404 error (expected when image doesn't exist yet)
+                if "404" not in str(check_e) and "Not found" not in str(check_e):
+                    print(f"Unexpected error checking image in Qdrant: {str(check_e)}")
+            
+            if update_success:
+                return
+                
+            # Get current appearance and mood
+            from app.core.memory_system import MemorySystem
+            memory_system = MemorySystem()
+            current_appearance = memory_system.get_recent_appearances(1)
+            current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+            current_mood = memory_system.get_current_mood()
+            current_location = memory_system.get_recent_locations(1)
+            current_location_text = current_location[0]["description"] if current_location else None
+            
+            # Embed the image
+            image_vector, thumbnail_b64 = embedder.embed_image_from_url(image_url)
+            if image_vector is None:
+                self.status.text = "Failed to embed image"
+                return
+                
+            # Prepare payload
+            import time
+            payload = {
+                "prompt": parsed_prompt,
+                "original_prompt": original_prompt,  # Store both prompts
+                "url": image_url,
+                "thumbnail_b64": thumbnail_b64,
+                "mood": current_mood,
+                "appearance": current_appearance_text,
+                "location": current_location_text,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "model": "runware",
+                "rating": rating_value
+            }
+            
+            # Store in Qdrant
+            result = await qdrant.store_image_embedding(
+                image_id=image_id,
+                vector=image_vector.tolist(),
+                payload=payload
+            )
+            
+            if result:
+                self.status.text = f"Image stored with {rating_value} rating ✓"
+            else:
+                self.status.text = "Storage failed ✗"
+                
+        except Exception as e:
+            import traceback
+            print(f"Error storing rated image: {str(e)}")
+            print(traceback.format_exc())
+            self.status.text = f"Error: {str(e)}"
 
 # Initialize the chat pipeline
 chat_pipeline = ChatPipeline()
@@ -175,6 +302,24 @@ def content() -> None:
     
     # Reference to the portrait image element for updating
     portrait_ref = None
+    
+    # Track if we have a message processing task running
+    is_processing = False
+    
+    # Heartbeat mechanism to keep connection alive during long operations
+    def setup_heartbeat():
+        # This function sends small UI updates every few seconds
+        # to keep the websocket connection alive during long operations
+        async def heartbeat_task():
+            heartbeat_counter = 0
+            while is_processing:
+                # Just ping with a UI update to keep connection alive
+                # No need to update text since we have visible spinners now
+                ui.update()
+                heartbeat_counter += 1
+                await asyncio.sleep(3)  # Send a heartbeat every 3 seconds
+        
+        return background_tasks.create(heartbeat_task())
     
     async def set_as_portrait(image_url):
         """Copy the image to the portrait location"""
@@ -258,30 +403,47 @@ def content() -> None:
                     msg_input = ui.textarea(placeholder='Type a message...')\
                         .classes('flex-1 bg-[#1f1f1f] text-white')\
                         .props('auto-grow')
-                    thinking_indicator = ui.spinner('Thinking...').classes('hidden')
                     
                     def send_message():
                         """Handle the send button click or Enter key"""
+                        nonlocal is_processing
+                        
                         user_message = msg_input.value
                         if not user_message.strip():
                             return
+                        
+                        # Prevent multiple submissions while processing
+                        if is_processing:
+                            ui.notify('Still processing your previous message, please wait...', color='warning')
+                            return
+                            
+                        # Set processing flag
+                        is_processing = True
                         
                         # Clear input immediately
                         current_message = user_message
                         msg_input.value = ""
                         
+                        # Disable the send button during processing
+                        send_button.props('disabled')
+                        
                         # Display user message immediately
                         with chat_box:
                             user_msg = ui.label(f"You: {current_message}").classes('self-end bg-blue-800 p-2 rounded-lg mb-2 max-w-3/4')
+                            # Add visible spinner row directly in the chat
+                            spinner_row = ui.row().classes('w-full justify-center my-4')
+                            with spinner_row:
+                                ui.spinner('dots', size='lg', color='primary')
+                                ui.label('Thinking...').classes('text-gray-400 ml-2')
                         
                         # Ensure UI updates before continuing
                         ui.update()
-                        
-                        # Show thinking indicator
-                        thinking_indicator.classes('inline-block')
-                        ui.update()  # Force UI update again to show the spinner
-                        
+
                         async def process_message():
+                            nonlocal is_processing
+                            # Start a heartbeat to keep connection alive
+                            heartbeat_task = setup_heartbeat()
+                            
                             try:
                                 if test_mode:
                                     # In test mode, create a mock response that echoes the input
@@ -307,18 +469,37 @@ def content() -> None:
                                     # Only include thoughts if thought tags were found
                                     if thought_tags:
                                         mock_response['thoughts'] = thought_tags
+                                        # Store thoughts in test mode too
+                                        for thought in thought_tags:
+                                            memory_system.add_thought(thought)
                                     
                                     # Only include mood if mood tags were found
                                     if mood_tags:
                                         mock_response['mood'] = mood_tags[0]  # Only use the first mood tag
+                                        # Store mood in test mode too
+                                        memory_system.update_mood(mood_tags[0])
                                     
                                     # Only include appearance if appearance tags were found
                                     if appearance_tags:
                                         mock_response['appearance'] = appearance_tags
+                                        # Store appearance changes in test mode too
+                                        for appearance in appearance_tags:
+                                            memory_system.add_appearance(appearance)
+                                            
+                                        # Update the display with most recent appearance from database 
+                                        # to ensure consistency between components
+                                        current_appearances = memory_system.get_recent_appearances(1)
+                                        if current_appearances:
+                                            appearance_display.content = current_appearances[0]["description"]
+                                        else:
+                                            # Fallback to the most recent tag if database query fails
+                                            appearance_display.content = appearance_tags[-1]
                                     
                                     # Only include location if location tags were found
                                     if location_tags:
                                         mock_response['location'] = location_tags[0]  # Only use the first location tag
+                                        # Store location in test mode too
+                                        memory_system.update_location(location_tags[0])
                                     
                                     # If image tags were found, create mock image data
                                     if image_tags:
@@ -343,9 +524,46 @@ def content() -> None:
                                         chat_pipeline.process_message(current_message),
                                         timeout=90  # 90 second timeout for LLM response
                                     )
+                                    
+                                    # Ensure mood, thoughts, and appearance are properly processed
+                                    # The chat_pipeline should handle this, but let's make sure
+                                    if response.get("mood"):
+                                        memory_system.update_mood(response["mood"])
+                                    
+                                    if response.get("thoughts"):
+                                        for thought in response["thoughts"]:
+                                            memory_system.add_thought(thought)
+                                    
+                                    if response.get("appearance"):
+                                        # First update display with the latest appearance from the response
+                                        last_appearance = response["appearance"][-1]
+                                        appearance_display.content = last_appearance
+                                        has_appearance_update = True
+                                        
+                                        # Store appearances in the database - this should already be handled by chat_pipeline
+                                        # but let's make sure that our UI reflects the changes
+                                        for appearance in response["appearance"]:
+                                            memory_system.add_appearance(appearance)
+                                        
+                                        # Force a UI update to ensure the appearance display is refreshed
+                                        ui.update()
+                                    else:
+                                        has_appearance_update = False
+                                    
+                                    if response.get("location"):
+                                        has_location_update = True
+                                        # Get the current location from database to ensure UI is in sync
+                                        current_locations = memory_system.get_recent_locations(1)
+                                        if current_locations and location_desc:
+                                            location_desc.content = current_locations[0]["description"]
+                                    else:
+                                        has_location_update = False
                                 
                                 # Display assistant response with original formatting
                                 with chat_box:
+                                    # Remove the spinner row before showing the response
+                                    chat_box.remove(spinner_row)
+                                    
                                     # Create a message container for text and related images
                                     with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
                                         # Clean response text by removing image tags before displaying
@@ -373,18 +591,6 @@ def content() -> None:
                                             has_mood_update = True
                                         else:
                                             has_mood_update = False
-                                        
-                                        if response.get("appearance"):
-                                            for appearance_change in response["appearance"]:
-                                                appearance_display.content = appearance_change
-                                            has_appearance_update = True
-                                        else:
-                                            has_appearance_update = False
-                                            
-                                        if response.get("location"):
-                                            has_location_update = True
-                                        else:
-                                            has_location_update = False
                                         
                                         # Add status indicators if any updates exist
                                         has_updates = has_thoughts_update or has_mood_update or has_appearance_update or has_location_update
@@ -452,15 +658,26 @@ def content() -> None:
                                                         task['img'].visible = True
                                                         
                                                         # Generate a guaranteed unique ID for each image
-                                                        image_uuid = f"img_{int(time.time())}_{i}"
+                                                        import uuid
+                                                        image_uuid = str(uuid.uuid4())
+                                                        
+                                                        # Get the original prompt from the image tags in the raw response text
+                                                        import re
+                                                        image_tags = re.findall(r'<image>(.*?)</image>', response['text'], re.DOTALL)
+                                                        original_prompt = ""
+                                                        if i < len(image_tags):
+                                                            original_prompt = image_tags[i].strip()
+                                                        else:
+                                                            # Fallback to the description if image tags can't be found
+                                                            original_prompt = current_image.get("description", "")
                                                             
                                                         # Add to lightbox with prompts
                                                         lightbox.add_image(
                                                             thumb_url=current_image["url"],
                                                             orig_url=current_image["url"],
                                                             image_id=image_uuid,
-                                                            original_prompt=current_image.get("original_prompt", current_image.get("description", "")),
-                                                            parsed_prompt=current_image.get("parsed_prompt", "")
+                                                            original_prompt=original_prompt,
+                                                            parsed_prompt=current_image.get("parsed_prompt", current_image.get("description", ""))
                                                         )
                                                         
                                                         # Set up click handler - update to use the lightbox
@@ -479,7 +696,31 @@ def content() -> None:
                                                     .props('color=purple').classes('mr-2')
                                                 
                                                 async def regenerate_images():
+                                                    nonlocal is_processing
+                                                    
+                                                    # Prevent multiple submissions while processing
+                                                    if is_processing:
+                                                        ui.notify('Still processing, please wait...', color='warning')
+                                                        return
+                                                    
+                                                    # Set processing flag
+                                                    is_processing = True
+                                                    
+                                                    # Show regeneration is happening
                                                     regenerate_button.props('loading')
+                                                    
+                                                    # Add visible spinner to chat box
+                                                    with chat_box:
+                                                        regen_spinner_row = ui.row().classes('w-full justify-center my-4')
+                                                        with regen_spinner_row:
+                                                            ui.spinner('dots', size='lg', color='purple')
+                                                            ui.label('Regenerating images...').classes('text-gray-400 ml-2')
+                                                    
+                                                    ui.update()
+                                                    
+                                                    # Start a heartbeat to keep connection alive
+                                                    heartbeat_task = setup_heartbeat()
+                                                    
                                                     try:
                                                         # Get current appearance and mood for context
                                                         current_appearance = memory_system.get_recent_appearances(1)
@@ -495,6 +736,10 @@ def content() -> None:
                                                         
                                                         if not image_tags:
                                                             ui.notify('No <image> tags found in the response', color='warning')
+                                                            # Remove spinner
+                                                            chat_box.remove(regen_spinner_row)
+                                                            regenerate_button.props('loading=false')
+                                                            is_processing = False
                                                             return
                                                         
                                                         # Format image contents with context and sequence
@@ -517,11 +762,17 @@ def content() -> None:
                                                             )
                                                         except asyncio.TimeoutError:
                                                             ui.notify('Image scene parsing timed out. Please try again.', color='warning')
+                                                            # Remove spinner
+                                                            chat_box.remove(regen_spinner_row)
                                                             regenerate_button.props('loading=false')
+                                                            is_processing = False
                                                             return
                                                         except Exception as e:
                                                             ui.notify(f'Error parsing image scenes: {str(e)}', color='negative')
+                                                            # Remove spinner
+                                                            chat_box.remove(regen_spinner_row)
                                                             regenerate_button.props('loading=false')
+                                                            is_processing = False
                                                             return
                                                         
                                                         if parsed_scenes:
@@ -529,11 +780,29 @@ def content() -> None:
                                                             scene_contents = [{"prompt": scene["prompt"], "orientation": scene["orientation"]} for scene in parsed_scenes]
                                                             print(f"Generating {len(scene_contents)} images in parallel...")
                                                             
-                                                            # Generate all images at once with timeout
-                                                            image_urls = await asyncio.wait_for(
-                                                                chat_pipeline.image_generator.generate(scene_contents),
-                                                                timeout=90  # 90 second timeout for all images
-                                                            )
+                                                            try:
+                                                                # Generate all images at once with timeout
+                                                                image_urls = await asyncio.wait_for(
+                                                                    chat_pipeline.image_generator.generate(scene_contents),
+                                                                    timeout=90  # 90 second timeout for all images
+                                                                )
+                                                            except asyncio.TimeoutError:
+                                                                ui.notify('Image generation timed out. Please try again.', color='warning')
+                                                                # Remove spinner
+                                                                chat_box.remove(regen_spinner_row)
+                                                                regenerate_button.props('loading=false')
+                                                                is_processing = False
+                                                                return
+                                                            except Exception as e:
+                                                                ui.notify(f'Error generating images: {str(e)}', color='negative')
+                                                                # Remove spinner
+                                                                chat_box.remove(regen_spinner_row)
+                                                                regenerate_button.props('loading=false')
+                                                                is_processing = False
+                                                                return
+                                                            
+                                                            # Remove spinner now that we have images
+                                                            chat_box.remove(regen_spinner_row)
                                                             
                                                             if image_urls and len(image_urls) > 0:
                                                                 # Clear existing images
@@ -554,10 +823,13 @@ def content() -> None:
                                                                                 with ui.card().classes('w-[120px] p-1 bg-gray-800'):
                                                                                     # Extract UUID from URL path for image ID
                                                                                     try:
-                                                                                        image_uuid = image_url.split('/')[-1].split('.')[0]
+                                                                                        # Use a unique UUID instead of extracting from filename
+                                                                                        import uuid
+                                                                                        image_uuid = str(uuid.uuid4())
                                                                                     except:
-                                                                                        from datetime import datetime
-                                                                                        image_uuid = f"img_{int(datetime.now().timestamp())}"
+                                                                                        # Fallback with a proper UUID
+                                                                                        import uuid
+                                                                                        image_uuid = str(uuid.uuid4())
                                                                                     
                                                                                     # Get scene prompt if available
                                                                                     parsed_prompt = scene.get('prompt', '') if isinstance(scene, dict) else str(scene)
@@ -580,35 +852,43 @@ def content() -> None:
                                                             else:
                                                                 ui.notify('Failed to generate images', color='negative')
                                                         else:
+                                                            # Remove spinner
+                                                            chat_box.remove(regen_spinner_row)
                                                             ui.notify('No visual scenes found in the response', color='warning')
                                                     except Exception as e:
                                                         ui.notify(f'Failed to generate images: {str(e)}', color='negative', timeout=5000)
                                                     finally:
+                                                        # In case spinner wasn't removed in one of the error paths
+                                                        try:
+                                                            chat_box.remove(regen_spinner_row)
+                                                        except:
+                                                            pass
                                                         regenerate_button.props('loading=false')
+                                                        is_processing = False
                                                 
                                                 regenerate_button.on('click', regenerate_images)
                                 
-                                # Update appearance display if provided
-                                if response.get("appearance") and len(response["appearance"]) > 0:
-                                    appearance_display.content = response["appearance"][-1]  # Show the most recent appearance update
-                                    
                             except asyncio.TimeoutError:
                                 # Handle timeout
+                                chat_box.remove(spinner_row)
                                 with chat_box:
                                     ui.label("Sorry, I'm taking too long to respond. Please try again.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                                 ui.notify("Request timed out", color="negative")
                             except Exception as e:
                                 # Handle errors
+                                chat_box.remove(spinner_row)
                                 with chat_box:
                                     ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                                 ui.notify(f"Error processing message: {str(e)}", color="negative")
                                     
                             finally:
-                                # Hide thinking indicator when done
-                                thinking_indicator.classes('hidden')
+                                # Re-enable the send button
+                                send_button.props('disabled=false')
+                                # Reset processing flag
+                                is_processing = False
                         
-                        # Start the async processing
-                        ui.timer(0.1, lambda: asyncio.create_task(process_message()), once=True)
+                        # Start the async processing as a background task
+                        background_tasks.create(process_message())
                     
                     # Connect send button to function
                     send_button = ui.button('SEND', on_click=send_message)\

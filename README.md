@@ -11,6 +11,24 @@ A modern AI chat interface built with NiceGUI, featuring memory management, worl
 - Modular architecture
 - Beautiful UI with dark theme
 
+## Special Tags
+
+The system recognizes the following special tags in messages:
+
+| Tag | Example | Purpose |
+|-----|---------|---------|
+| `<desire>...</desire>` | `<desire>strong desire to explore</desire>` | Highlights desires with a pale pink background |
+| `<internal>...</internal>` | `<internal>thinking to myself</internal>` | Indicates internal thoughts with a light blue background |
+| `<fantasy>...</fantasy>` | `<fantasy>imagining flying</fantasy>` | Shows fantasy content with a light purple background |
+| `<hidden>...</hidden>` | `<hidden>visible but styled differently</hidden>` | Content that's styled with a gray background |
+| `<private>...</private>` | `<private>personal thoughts</private>` | Personal content with a light brown background |
+| `<thought>...</thought>` | `<thought>analytical observation</thought>` | Hidden from chat, displayed in thoughts panel |
+| `<mood>...</mood>` | `<mood>curious and excited</mood>` | Updates mood in sidebar, hidden from chat |
+| `<appearance>...</appearance>` | `<appearance>wearing blue jacket</appearance>` | Updates appearance in sidebar, hidden from chat |
+| `<location>...</location>` | `<location>in a high-tech lab</location>` | Updates location state, hidden from chat |
+| `<image>...</image>` | `<image>cyberpunk cityscape</image>` | Generates an image based on description |
+| `<secret>...</secret>` | `<secret>hidden content</secret>` | Completely hidden content, indicated with lock icon |
+
 ## Project Structure
 
 ```

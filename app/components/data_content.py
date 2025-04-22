@@ -33,6 +33,9 @@ def content() -> None:
         ui.markdown("**Current Appearance**")
         
         with ui.column().classes('w-full gap-4'):
+            # Ensure we get the latest appearance from the database
+            current_appearances = memory_system.get_recent_appearances(1)
+            current_appearance = current_appearances[0]["description"] if current_appearances else "No appearance set"
             appearance_display = ui.markdown(current_appearance).classes('text-lg')
             
             def update_appearance():
@@ -40,10 +43,30 @@ def content() -> None:
                 memory_system.add_appearance(appearance_input.value)
                 # Also add to changes list
                 memory_system.add_appearance_change(appearance_input.value)
-                appearance_display.content = appearance_input.value
+                
+                # Update display using the value from database to ensure consistency
+                current_appearances = memory_system.get_recent_appearances(1)
+                if current_appearances:
+                    appearance_display.content = current_appearances[0]["description"]
+                else:
+                    appearance_display.content = appearance_input.value
+                    
                 ui.notify('Appearance updated successfully!', color='positive')
             
-            appearance_input = ui.textarea(placeholder='Enter new appearance description...').classes('w-full')
+            # Add refresh button to reload from database
+            with ui.row().classes('w-full justify-between items-center'):
+                appearance_input = ui.textarea(placeholder='Enter new appearance description...').classes('flex-grow')
+                
+                def refresh_appearance():
+                    current_appearances = memory_system.get_recent_appearances(1)
+                    if current_appearances:
+                        appearance_display.content = current_appearances[0]["description"]
+                        ui.notify('Appearance refreshed from database', color='info')
+                    else:
+                        ui.notify('No appearance records found', color='warning')
+                
+                ui.button(icon='refresh', on_click=refresh_appearance).props('flat').tooltip('Refresh from database')
+            
             ui.button('Update Appearance', on_click=update_appearance).props('color=primary')
     
     ui.separator()

@@ -127,7 +127,9 @@ class ChatPipeline:
         # Process appearance changes
         if parsed_content.get("appearance"):
             for change in parsed_content["appearance"]:
-                self.memory_system.add_appearance_change(change)
+                # Store appearance changes in both appearance history and as changes
+                self.memory_system.add_appearance(change)  # Store in main appearance table
+                self.memory_system.add_appearance_change(change)  # Store as a change if this method exists
             self.logger.info(f"Added {len(parsed_content['appearance'])} appearance changes")
         
         # Process location changes
