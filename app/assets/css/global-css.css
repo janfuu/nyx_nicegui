@@ -1,3 +1,66 @@
 .q-tooltip{
     font-size: medium;
 }
+
+/* Styled tags from home_content.py */
+.styled-tag {
+    display: inline;
+    border-radius: 3px;
+    padding: 1px 3px;
+    margin: 0 1px;
+}
+
+/* Each tag type gets a distinct style */
+.styled-tag.desire {
+    background-color: rgba(219, 112, 147, 0.2);
+    border-left: 2px solid palevioletred;
+}
+
+.styled-tag.internal {
+    background-color: rgba(70, 130, 180, 0.2);
+    border-left: 2px solid steelblue;
+}
+
+.styled-tag.fantasy {
+    background-color: rgba(148, 0, 211, 0.2);
+    border-left: 2px solid darkviolet;
+}
+
+.styled-tag.hidden {
+    background-color: rgba(128, 128, 128, 0.2);
+    border-left: 2px solid gray;
+}
+
+.styled-tag.private {
+    background-color: rgba(165, 42, 42, 0.2);
+    border-left: 2px solid brown;
+}
+
+/* Hide content of special tags that have dedicated UI elements */
+.styled-tag.thought,
+.styled-tag.mood,
+.styled-tag.appearance,
+.styled-tag.location {
+    display: none;
+}
+
+/* Keep styling for when these tags are displayed in other contexts */
+.styled-tag.thought {
+    background-color: rgba(60, 179, 113, 0.2);
+    border-left: 2px solid mediumseagreen;
+}
+
+.styled-tag.mood {
+    background-color: rgba(255, 165, 0, 0.2);
+    border-left: 2px solid orange;
+}
+
+.styled-tag.appearance {
+    background-color: rgba(106, 90, 205, 0.2);
+    border-left: 2px solid slateblue;
+}
+
+.styled-tag.location {
+    background-color: rgba(30, 144, 255, 0.2);
+    border-left: 2px solid dodgerblue;
+}

@@ -111,19 +111,54 @@ chat_pipeline = ChatPipeline()
 
 # Helper function to clean response text by removing image tags
 def clean_response_text(text):
-    """Remove <image>, <thought>, <mood>, and other tags from response text"""
+    """Remove tags from response text while preserving conversation flow"""
     import re
-    # Replace each <image>...</image> tag with a simple [Image] placeholder
-    cleaned = re.sub(r'<image>(.*?)</image>', '[Image]', text, flags=re.DOTALL)
-    # Replace each <thought>...</thought> tag with nothing (remove completely)
-    cleaned = re.sub(r'<thought>(.*?)</thought>', '', cleaned, flags=re.DOTALL)
-    # Replace each <mood>...</mood> tag with nothing (remove completely)
-    cleaned = re.sub(r'<mood>(.*?)</mood>', '', cleaned, flags=re.DOTALL)
-    # Replace each <appearance>...</appearance> tag with nothing (remove completely)
-    cleaned = re.sub(r'<appearance>(.*?)</appearance>', '', cleaned, flags=re.DOTALL)
-    # Replace each <location>...</location> tag with nothing (remove completely)
-    cleaned = re.sub(r'<location>(.*?)</location>', '', cleaned, flags=re.DOTALL)
+    
+    # Define visible tags (these get replaced with placeholders)
+    visible_tag_replacements = {
+        r'<image>(.*?)</image>': '[Image]'
+    }
+    
+    # Define tags for special styling
+    styled_tags = ['desire', 'internal', 'fantasy', 'hidden', 'private', 'thought', 'mood', 'appearance', 'location']
+    
+    # Define hidden tags (these get completely removed)
+    hidden_tags = ['secret']
+    
+    # Replace visible tags with placeholders
+    cleaned = text
+    for pattern, replacement in visible_tag_replacements.items():
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
+    
+    # Process styled tags (keep content but add CSS styling)
+    for tag in styled_tags:
+        pattern = f'<{tag}>(.*?)</{tag}>'
+        # Replace with styled span
+        replacement = f'<span class="styled-tag {tag}">\\1</span>'
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
+    
+    # Remove hidden tags completely
+    for tag in hidden_tags:
+        pattern = f'<{tag}>(.*?)</{tag}>'
+        cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
+    
     return cleaned
+
+# Function to check if text contains hidden content tags
+def has_hidden_content(text):
+    """Check if the text contains any secret content tags"""
+    import re
+    
+    # Only secret tags are completely hidden now
+    hidden_tags = ['secret']
+    
+    # Check for each tag type
+    for tag in hidden_tags:
+        pattern = f'<{tag}>(.*?)</{tag}>'
+        if re.search(pattern, text, re.DOTALL):
+            return True
+    
+    return False
 
 def content() -> None:
     # Initialize memory system
@@ -250,13 +285,18 @@ def content() -> None:
                             try:
                                 if test_mode:
                                     # In test mode, create a mock response that echoes the input
-                                    # Extract image tags if present
+                                    # Extract all types of tags
                                     import re
                                     image_tags = re.findall(r'<image>(.*?)</image>', current_message, re.DOTALL)
                                     thought_tags = re.findall(r'<thought>(.*?)</thought>', current_message, re.DOTALL)
                                     mood_tags = re.findall(r'<mood>(.*?)</mood>', current_message, re.DOTALL)
                                     appearance_tags = re.findall(r'<appearance>(.*?)</appearance>', current_message, re.DOTALL)
                                     location_tags = re.findall(r'<location>(.*?)</location>', current_message, re.DOTALL)
+                                    
+                                    # Also look for secret tags that will be hidden but indicated with a lock icon
+                                    secret_tags = re.findall(r'<secret>(.*?)</secret>', current_message, re.DOTALL)
+                                    desire_tags = re.findall(r'<desire>(.*?)</desire>', current_message, re.DOTALL)
+                                    internal_tags = re.findall(r'<internal>(.*?)</internal>', current_message, re.DOTALL)
                                     
                                     # Create a mock response with only the tags that were included
                                     mock_response = {
@@ -311,6 +351,11 @@ def content() -> None:
                                         # Clean response text by removing image tags before displaying
                                         cleaned_text = clean_response_text(response['text'])
                                         ui.markdown(cleaned_text).classes('text-white')
+                                        
+                                        # Add indicator for hidden content if present
+                                        if has_hidden_content(response['text']):
+                                            with ui.row().classes('justify-end items-center mt-1'):
+                                                ui.icon('lock', color='grey').classes('text-xs')
                                         
                                         # Update the side panels with thoughts, mood, and appearance
                                         # But don't display them in the chat response anymore
