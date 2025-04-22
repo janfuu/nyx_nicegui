@@ -12,25 +12,52 @@ class Lightbox:
     def __init__(self) -> None:
         with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
             ui.keyboard(self._handle_key)
-            with ui.row().classes('w-full h-full items-center justify-between'):
-                # Left arrow
-                with ui.button(on_click=lambda: self._navigate(-1)).props('flat round color=white').classes('ml-4'):
-                    ui.icon('chevron_left').classes('text-4xl')
+            with ui.column().classes('w-full h-full items-center justify-between'):
+                # Counter at the top
+                self.counter = ui.label().classes('text-white text-h6 mt-2')
                 
-                # Center container for image
-                with ui.column().classes('flex-grow items-center justify-center h-full'):
-                    self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-[90vh]')
-                    self.counter = ui.label().classes('mt-2 text-white')
+                # Main content area with navigation areas on sides
+                with ui.row().classes('w-full flex-grow'):
+                    # Left navigation area - full height
+                    with ui.button(on_click=lambda: self._navigate(-1)).props('flat color=white').classes('h-full rounded-none flex items-center justify-center w-16 opacity-70 hover:opacity-100'):
+                        ui.icon('chevron_left').classes('text-4xl')
+                    
+                    # Center container for image
+                    with ui.column().classes('flex-grow items-center justify-center h-[80vh]'):
+                        self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-full max-w-full')
+                    
+                    # Right navigation area - full height
+                    with ui.button(on_click=lambda: self._navigate(1)).props('flat color=white').classes('h-full rounded-none flex items-center justify-center w-16 opacity-70 hover:opacity-100'):
+                        ui.icon('chevron_right').classes('text-4xl')
                 
-                # Right arrow
-                with ui.button(on_click=lambda: self._navigate(1)).props('flat round color=white').classes('mr-4'):
-                    ui.icon('chevron_right').classes('text-4xl')
+                # Bottom info and controls
+                with ui.column().classes('w-full bg-gray-900 p-2 rounded-t-lg'):
+                    # Prompt information
+                    with ui.row().classes('w-full'):
+                        with ui.column().classes('w-full gap-2'):
+                            self.original_prompt = ui.markdown("").classes('text-white text-sm')
+                            self.parsed_prompt = ui.markdown("").classes('text-white text-sm')
         
-        self.image_list: List[str] = []
+        self.image_list = []
+        self.prompt_list = []
+        self.parsed_prompt_list = []
+        self.id_list = []
+        self.current_index = 0
 
-    def add_image(self, thumb_url: str, orig_url: str) -> ui.image:
+    def add_image(self, thumb_url: str, orig_url: str, image_id: str = None, original_prompt: str = "", parsed_prompt: str = "") -> ui.image:
         """Place a thumbnail image in the UI and make it clickable to enlarge."""
         self.image_list.append(orig_url)
+        
+        # Store prompts and ID if provided
+        self.prompt_list.append(original_prompt)
+        self.parsed_prompt_list.append(parsed_prompt)
+        
+        # Generate an ID if not provided
+        if image_id is None:
+            import uuid
+            image_id = str(uuid.uuid4())
+        self.id_list.append(image_id)
+        
         with ui.button(on_click=lambda: self._open(orig_url)).props('flat dense square'):
             return ui.image(thumb_url)
 
@@ -46,7 +73,7 @@ class Lightbox:
 
     def _navigate(self, direction: int) -> None:
         """Navigate through images. direction should be -1 for previous or 1 for next."""
-        current_idx = self.image_list.index(self.large_image.source)
+        current_idx = self.current_index
         new_idx = current_idx + direction
         if 0 <= new_idx < len(self.image_list):
             self._open(self.image_list[new_idx])
@@ -54,7 +81,20 @@ class Lightbox:
     def _open(self, url: str) -> None:
         self.large_image.set_source(url)
         current_idx = self.image_list.index(url)
+        self.current_index = current_idx
         self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
+        
+        # Update prompt information if available
+        if current_idx < len(self.prompt_list) and self.prompt_list[current_idx]:
+            self.original_prompt.content = f"**Original prompt:** {self.prompt_list[current_idx]}"
+        else:
+            self.original_prompt.content = ""
+        
+        if current_idx < len(self.parsed_prompt_list) and self.parsed_prompt_list[current_idx]:
+            self.parsed_prompt.content = f"**Parsed prompt:** {self.parsed_prompt_list[current_idx]}"
+        else:
+            self.parsed_prompt.content = ""
+        
         self.dialog.open()
 
 # Initialize the chat pipeline
@@ -211,7 +251,7 @@ def content() -> None:
                                                             # Create a card for each image
                                                             with ui.card().classes('q-pa-xs'):
                                                                 loading = ui.spinner('default', size='xl').props('color=primary')
-                                                                container = ui.button().props('flat dense').classes('w-[300px] h-[400px] overflow-hidden')
+                                                                container = ui.button().props('flat dense').classes('w-[300px] h-[300px] overflow-hidden')
                                                                 with container:
                                                                     img = ui.image().props('fit=cover').classes('w-full h-full')
                                                                     img.visible = False
@@ -237,7 +277,24 @@ def content() -> None:
                                                         task['loading'].visible = False
                                                         task['img'].set_source(image_data["url"])
                                                         task['img'].visible = True
-                                                        lightbox.image_list.append(image_data["url"])
+                                                        
+                                                        # Extract UUID from URL path for image ID
+                                                        try:
+                                                            image_uuid = image_data["url"].split('/')[-1].split('.')[0]
+                                                        except:
+                                                            from datetime import datetime
+                                                            image_uuid = f"img_{int(datetime.now().timestamp())}"
+                                                            
+                                                        # Add to lightbox with prompts
+                                                        lightbox.add_image(
+                                                            thumb_url=image_data["url"],
+                                                            orig_url=image_data["url"],
+                                                            image_id=image_uuid,
+                                                            original_prompt=image_data.get("original_prompt", image_data.get("description", "")),
+                                                            parsed_prompt=image_data.get("parsed_prompt", "")
+                                                        )
+                                                        
+                                                        # Set up click handler - update to use the lightbox
                                                         task['button'].on('click', lambda url=image_data["url"]: lightbox._open(url))
                                                     except Exception as e:
                                                         print(f"Error updating image display: {str(e)}")
@@ -324,7 +381,24 @@ def content() -> None:
                                                                     for original_tag, scene, image_url in image_data:
                                                                         if image_url:
                                                                             with ui.card().classes('w-[180px] p-1 bg-gray-800'):
-                                                                                img = lightbox.add_image(image_url, image_url)
+                                                                                # Extract UUID from URL path for image ID
+                                                                                try:
+                                                                                    image_uuid = image_url.split('/')[-1].split('.')[0]
+                                                                                except:
+                                                                                    from datetime import datetime
+                                                                                    image_uuid = f"img_{int(datetime.now().timestamp())}"
+                                                                                
+                                                                                # Get scene prompt if available
+                                                                                parsed_prompt = scene.get('prompt', '') if isinstance(scene, dict) else str(scene)
+                                                                                
+                                                                                # Add to lightbox with ID and prompts
+                                                                                img = lightbox.add_image(
+                                                                                    thumb_url=image_url,
+                                                                                    orig_url=image_url,
+                                                                                    image_id=image_uuid,
+                                                                                    original_prompt=original_tag,
+                                                                                    parsed_prompt=parsed_prompt
+                                                                                )
                                                                                 img.classes('w-full rounded-lg cursor-pointer')
                                                                                 
                                                                                 with ui.row().classes('items-center justify-between w-full mt-1'):

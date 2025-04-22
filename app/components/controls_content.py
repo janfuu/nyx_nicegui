@@ -22,25 +22,25 @@ class Lightbox:
         with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
             ui.keyboard(self._handle_key)
             with ui.column().classes('w-full h-full items-center justify-between'):
-                # Top navigation row
-                with ui.row().classes('w-full items-center justify-between'):
-                    # Left arrow
-                    with ui.button(on_click=lambda: self._navigate(-1)).props('flat round color=white').classes('ml-4'):
+                # Counter at the top
+                self.counter = ui.label().classes('text-white text-h6 mt-2')
+                
+                # Main content area with navigation areas on sides
+                with ui.row().classes('w-full flex-grow'):
+                    # Left navigation area - full height
+                    with ui.button(on_click=lambda: self._navigate(-1)).props('flat color=white').classes('h-full rounded-none flex items-center justify-center w-16 opacity-70 hover:opacity-100'):
                         ui.icon('chevron_left').classes('text-4xl')
                     
-                    # Counter in the middle
-                    self.counter = ui.label().classes('text-white text-h6')
+                    # Center container for image
+                    with ui.column().classes('flex-grow items-center justify-center h-[80vh]'):
+                        self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-full max-w-full')
                     
-                    # Right arrow
-                    with ui.button(on_click=lambda: self._navigate(1)).props('flat round color=white').classes('mr-4'):
+                    # Right navigation area - full height
+                    with ui.button(on_click=lambda: self._navigate(1)).props('flat color=white').classes('h-full rounded-none flex items-center justify-center w-16 opacity-70 hover:opacity-100'):
                         ui.icon('chevron_right').classes('text-4xl')
                 
-                # Center container for image
-                with ui.column().classes('flex-grow items-center justify-center h-[75vh] w-full'):
-                    self.large_image = ui.image().props('no-spinner fit=scale-down').classes('max-h-full max-w-full')
-                
                 # Bottom info and controls
-                with ui.column().classes('w-full bg-gray-900 p-4 rounded-t-lg'):
+                with ui.column().classes('w-full bg-gray-900 p-2 rounded-t-lg'):
                     # Prompt information
                     with ui.row().classes('w-full'):
                         with ui.column().classes('w-full gap-2'):
@@ -500,7 +500,7 @@ def test_image_generator_parser():
                             # Create a card for each image
                             with ui.card().classes('q-pa-xs'):
                                 loading = ui.spinner('default', size='xl').props('color=primary')
-                                container = ui.button().props('flat dense').classes('w-[300px] h-[400px] overflow-hidden')
+                                container = ui.button().props('flat dense').classes('w-[300px] h-[300px] overflow-hidden')
                                 with container:
                                     img = ui.image().props('fit=cover').classes('w-full h-full')
                                     img.visible = False
