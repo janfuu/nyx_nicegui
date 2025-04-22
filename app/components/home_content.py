@@ -111,12 +111,18 @@ chat_pipeline = ChatPipeline()
 
 # Helper function to clean response text by removing image tags
 def clean_response_text(text):
-    """Remove <image> and <thought> tags from response text while preserving the flow of conversation"""
+    """Remove <image>, <thought>, <mood>, and other tags from response text"""
     import re
     # Replace each <image>...</image> tag with a simple [Image] placeholder
     cleaned = re.sub(r'<image>(.*?)</image>', '[Image]', text, flags=re.DOTALL)
     # Replace each <thought>...</thought> tag with nothing (remove completely)
     cleaned = re.sub(r'<thought>(.*?)</thought>', '', cleaned, flags=re.DOTALL)
+    # Replace each <mood>...</mood> tag with nothing (remove completely)
+    cleaned = re.sub(r'<mood>(.*?)</mood>', '', cleaned, flags=re.DOTALL)
+    # Replace each <appearance>...</appearance> tag with nothing (remove completely)
+    cleaned = re.sub(r'<appearance>(.*?)</appearance>', '', cleaned, flags=re.DOTALL)
+    # Replace each <location>...</location> tag with nothing (remove completely)
+    cleaned = re.sub(r'<location>(.*?)</location>', '', cleaned, flags=re.DOTALL)
     return cleaned
 
 def content() -> None:
@@ -247,14 +253,32 @@ def content() -> None:
                                     # Extract image tags if present
                                     import re
                                     image_tags = re.findall(r'<image>(.*?)</image>', current_message, re.DOTALL)
+                                    thought_tags = re.findall(r'<thought>(.*?)</thought>', current_message, re.DOTALL)
+                                    mood_tags = re.findall(r'<mood>(.*?)</mood>', current_message, re.DOTALL)
+                                    appearance_tags = re.findall(r'<appearance>(.*?)</appearance>', current_message, re.DOTALL)
+                                    location_tags = re.findall(r'<location>(.*?)</location>', current_message, re.DOTALL)
                                     
+                                    # Create a mock response with only the tags that were included
                                     mock_response = {
                                         'text': f"Echo: {current_message}",
-                                        'thoughts': ["This is a test thought from echo mode"],
-                                        'mood': "Testing and curious",
-                                        'appearance': ["Current test appearance with subtle glow effects"],
                                         'images': []
                                     }
+                                    
+                                    # Only include thoughts if thought tags were found
+                                    if thought_tags:
+                                        mock_response['thoughts'] = thought_tags
+                                    
+                                    # Only include mood if mood tags were found
+                                    if mood_tags:
+                                        mock_response['mood'] = mood_tags[0]  # Only use the first mood tag
+                                    
+                                    # Only include appearance if appearance tags were found
+                                    if appearance_tags:
+                                        mock_response['appearance'] = appearance_tags
+                                    
+                                    # Only include location if location tags were found
+                                    if location_tags:
+                                        mock_response['location'] = location_tags[0]  # Only use the first location tag
                                     
                                     # If image tags were found, create mock image data
                                     if image_tags:
@@ -290,16 +314,52 @@ def content() -> None:
                                         
                                         # Update the side panels with thoughts, mood, and appearance
                                         # But don't display them in the chat response anymore
+                                        has_updates = False
+                                        
                                         if response.get("thoughts"):
                                             for thought in response["thoughts"]:
                                                 thoughts_display.content = thought
+                                            has_thoughts_update = True
+                                        else:
+                                            has_thoughts_update = False
                                         
                                         if response.get("mood"):
                                             mood_display.content = response["mood"]
+                                            has_mood_update = True
+                                        else:
+                                            has_mood_update = False
                                         
                                         if response.get("appearance"):
                                             for appearance_change in response["appearance"]:
                                                 appearance_display.content = appearance_change
+                                            has_appearance_update = True
+                                        else:
+                                            has_appearance_update = False
+                                            
+                                        if response.get("location"):
+                                            has_location_update = True
+                                        else:
+                                            has_location_update = False
+                                        
+                                        # Add status indicators if any updates exist
+                                        has_updates = has_thoughts_update or has_mood_update or has_appearance_update or has_location_update
+                                        
+                                        if has_updates:
+                                            ui.separator().classes('my-2')
+                                            with ui.row().classes('justify-end items-center gap-2 mt-2'):
+                                                ui.label("Updates:").classes('text-xs text-gray-400')
+                                                
+                                                if has_thoughts_update:
+                                                    ui.icon('psychology', color='purple').classes('text-lg')
+                                                
+                                                if has_mood_update:
+                                                    ui.icon('mood', color='blue').classes('text-lg')
+                                                
+                                                if has_appearance_update:
+                                                    ui.icon('face', color='pink').classes('text-lg')
+                                                
+                                                if has_location_update:
+                                                    ui.icon('place', color='green').classes('text-lg')
                                         
                                         # Display generated images if present
                                         if response.get("images") and len(response["images"]) > 0:
@@ -366,121 +426,122 @@ def content() -> None:
                                                         ui.label('Display failed').classes('text-caption text-negative')
                                         
                                         # Add Regenerate button for re-running image generation
-                                        ui.separator().classes('my-2')
-                                        with ui.row().classes('justify-between w-full'):
-                                            regenerate_button = ui.button('Regenerate Images', icon='refresh')\
-                                                .props('color=purple').classes('mr-2')
-                                            
-                                            async def regenerate_images():
-                                                regenerate_button.props('loading')
-                                                try:
-                                                    # Get current appearance and mood for context
-                                                    current_appearance = memory_system.get_recent_appearances(1)
-                                                    current_appearance_text = current_appearance[0]["description"] if current_appearance else None
-                                                    current_mood = memory_system.get_current_mood()
-                                                    current_location = memory_system.get_recent_locations(1)
-                                                    current_location_text = current_location[0]["description"] if current_location else None
-                                                    
-                                                    # Extract image tags from response
-                                                    import re
-                                                    image_pattern = r'<image>(.*?)</image>'
-                                                    image_tags = re.findall(image_pattern, response['text'], re.DOTALL)
-                                                    
-                                                    if not image_tags:
-                                                        ui.notify('No <image> tags found in the response', color='warning')
-                                                        return
-                                                    
-                                                    # Format image contents with context and sequence
-                                                    image_context = {
-                                                        "appearance": current_appearance_text,
-                                                        "mood": current_mood,
-                                                        "location": current_location_text,
-                                                        "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
-                                                    }
-                                                    
-                                                    # Process through image parser
+                                        # Only show if there are images to regenerate
+                                        if response.get("images") and len(response["images"]) > 0:
+                                            ui.separator().classes('my-2')
+                                            with ui.row().classes('justify-between w-full'):
+                                                regenerate_button = ui.button('Regenerate Images', icon='refresh')\
+                                                    .props('color=purple').classes('mr-2')
+                                                
+                                                async def regenerate_images():
+                                                    regenerate_button.props('loading')
                                                     try:
-                                                        # Use timeout for parser
-                                                        parsed_scenes = await asyncio.wait_for(
-                                                            chat_pipeline.image_scene_parser.parse_images(
-                                                                json.dumps(image_context),
-                                                                current_appearance=current_appearance_text
-                                                            ),
-                                                            timeout=60  # 60 second timeout for scene parsing
-                                                        )
-                                                    except asyncio.TimeoutError:
-                                                        ui.notify('Image scene parsing timed out. Please try again.', color='warning')
-                                                        regenerate_button.props('loading=false')
-                                                        return
-                                                    except Exception as e:
-                                                        ui.notify(f'Error parsing image scenes: {str(e)}', color='negative')
-                                                        regenerate_button.props('loading=false')
-                                                        return
-                                                    
-                                                    if parsed_scenes:
-                                                        # Generate all images in parallel
-                                                        scene_contents = [{"prompt": scene["prompt"], "orientation": scene["orientation"]} for scene in parsed_scenes]
-                                                        print(f"Generating {len(scene_contents)} images in parallel...")
+                                                        # Get current appearance and mood for context
+                                                        current_appearance = memory_system.get_recent_appearances(1)
+                                                        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+                                                        current_mood = memory_system.get_current_mood()
+                                                        current_location = memory_system.get_recent_locations(1)
+                                                        current_location_text = current_location[0]["description"] if current_location else None
                                                         
-                                                        # Generate all images at once with timeout
-                                                        image_urls = await asyncio.wait_for(
-                                                            chat_pipeline.image_generator.generate(scene_contents),
-                                                            timeout=90  # 90 second timeout for all images
-                                                        )
+                                                        # Extract image tags from response
+                                                        import re
+                                                        image_pattern = r'<image>(.*?)</image>'
+                                                        image_tags = re.findall(image_pattern, response['text'], re.DOTALL)
                                                         
-                                                        if image_urls and len(image_urls) > 0:
-                                                            # Clear existing images
-                                                            for child in list(chat_box.children):
-                                                                if isinstance(child, ui.expansion) and child.text == 'GENERATED IMAGES':
-                                                                    chat_box.remove(child)
+                                                        if not image_tags:
+                                                            ui.notify('No <image> tags found in the response', color='warning')
+                                                            return
+                                                        
+                                                        # Format image contents with context and sequence
+                                                        image_context = {
+                                                            "appearance": current_appearance_text,
+                                                            "mood": current_mood,
+                                                            "location": current_location_text,
+                                                            "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
+                                                        }
+                                                        
+                                                        # Process through image parser
+                                                        try:
+                                                            # Use timeout for parser
+                                                            parsed_scenes = await asyncio.wait_for(
+                                                                chat_pipeline.image_scene_parser.parse_images(
+                                                                    json.dumps(image_context),
+                                                                    current_appearance=current_appearance_text
+                                                                ),
+                                                                timeout=60  # 60 second timeout for scene parsing
+                                                            )
+                                                        except asyncio.TimeoutError:
+                                                            ui.notify('Image scene parsing timed out. Please try again.', color='warning')
+                                                            regenerate_button.props('loading=false')
+                                                            return
+                                                        except Exception as e:
+                                                            ui.notify(f'Error parsing image scenes: {str(e)}', color='negative')
+                                                            regenerate_button.props('loading=false')
+                                                            return
+                                                        
+                                                        if parsed_scenes:
+                                                            # Generate all images in parallel
+                                                            scene_contents = [{"prompt": scene["prompt"], "orientation": scene["orientation"]} for scene in parsed_scenes]
+                                                            print(f"Generating {len(scene_contents)} images in parallel...")
                                                             
-                                                            # Display regenerated images
-                                                            with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
-                                                                with ui.row().classes('flex-wrap gap-2 w-full'):
-                                                                    # Create a list of tuples with original tag, parsed scene, and image URL
-                                                                    image_data = list(zip(image_tags, parsed_scenes, image_urls))
-                                                                    # Sort by sequence number if available
-                                                                    image_data.sort(key=lambda x: x[1].get('sequence', 0) if isinstance(x[1], dict) else 0)
-                                                                    
-                                                                    for original_tag, scene, image_url in image_data:
-                                                                        if image_url:
-                                                                            with ui.card().classes('w-[120px] p-1 bg-gray-800'):
-                                                                                # Extract UUID from URL path for image ID
-                                                                                try:
-                                                                                    image_uuid = image_url.split('/')[-1].split('.')[0]
-                                                                                except:
-                                                                                    from datetime import datetime
-                                                                                    image_uuid = f"img_{int(datetime.now().timestamp())}"
-                                                                                
-                                                                                # Get scene prompt if available
-                                                                                parsed_prompt = scene.get('prompt', '') if isinstance(scene, dict) else str(scene)
-                                                                                
-                                                                                # Add to lightbox with ID and prompts
-                                                                                img = lightbox.add_image(
-                                                                                    thumb_url=image_url,
-                                                                                    orig_url=image_url,
-                                                                                    image_id=image_uuid,
-                                                                                    original_prompt=original_tag,
-                                                                                    parsed_prompt=parsed_prompt
-                                                                                )
-                                                                                img.classes('w-full rounded-lg cursor-pointer')
-                                                                                
-                                                                                with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                                                    short_desc = original_tag[:30] + ("..." if len(original_tag) > 30 else original_tag)
-                                                                                    ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                                                    ui.button(icon='search', on_click=lambda url=image_url, tag=original_tag: show_image_details({"url": url, "description": tag}))\
-                                                                                        .props('flat dense round').classes('text-xs')
+                                                            # Generate all images at once with timeout
+                                                            image_urls = await asyncio.wait_for(
+                                                                chat_pipeline.image_generator.generate(scene_contents),
+                                                                timeout=90  # 90 second timeout for all images
+                                                            )
+                                                            
+                                                            if image_urls and len(image_urls) > 0:
+                                                                # Clear existing images
+                                                                for child in list(chat_box.children):
+                                                                    if isinstance(child, ui.expansion) and child.text == 'GENERATED IMAGES':
+                                                                        chat_box.remove(child)
+                                                                
+                                                                # Display regenerated images
+                                                                with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
+                                                                    with ui.row().classes('flex-wrap gap-2 w-full'):
+                                                                        # Create a list of tuples with original tag, parsed scene, and image URL
+                                                                        image_data = list(zip(image_tags, parsed_scenes, image_urls))
+                                                                        # Sort by sequence number if available
+                                                                        image_data.sort(key=lambda x: x[1].get('sequence', 0) if isinstance(x[1], dict) else 0)
+                                                                        
+                                                                        for original_tag, scene, image_url in image_data:
+                                                                            if image_url:
+                                                                                with ui.card().classes('w-[120px] p-1 bg-gray-800'):
+                                                                                    # Extract UUID from URL path for image ID
+                                                                                    try:
+                                                                                        image_uuid = image_url.split('/')[-1].split('.')[0]
+                                                                                    except:
+                                                                                        from datetime import datetime
+                                                                                        image_uuid = f"img_{int(datetime.now().timestamp())}"
+                                                                                    
+                                                                                    # Get scene prompt if available
+                                                                                    parsed_prompt = scene.get('prompt', '') if isinstance(scene, dict) else str(scene)
+                                                                                    
+                                                                                    # Add to lightbox with ID and prompts
+                                                                                    img = lightbox.add_image(
+                                                                                        thumb_url=image_url,
+                                                                                        orig_url=image_url,
+                                                                                        image_id=image_uuid,
+                                                                                        original_prompt=original_tag,
+                                                                                        parsed_prompt=parsed_prompt
+                                                                                    )
+                                                                                    img.classes('w-full rounded-lg cursor-pointer')
+                                                                                    
+                                                                                    with ui.row().classes('items-center justify-between w-full mt-1'):
+                                                                                        short_desc = original_tag[:30] + ("..." if len(original_tag) > 30 else original_tag)
+                                                                                        ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
+                                                                                        ui.button(icon='search', on_click=lambda url=image_url, tag=original_tag: show_image_details({"url": url, "description": tag}))\
+                                                                                            .props('flat dense round').classes('text-xs')
+                                                            else:
+                                                                ui.notify('Failed to generate images', color='negative')
                                                         else:
-                                                            ui.notify('Failed to generate images', color='negative')
-                                                    else:
-                                                        ui.notify('No visual scenes found in the response', color='warning')
-                                                except Exception as e:
-                                                    ui.notify(f'Failed to generate images: {str(e)}', color='negative', timeout=5000)
-                                                    print(f"Image generation error: {str(e)}")  # Log the full error
-                                                finally:
-                                                    regenerate_button.props('loading=false')
-                                            
-                                            regenerate_button.on('click', regenerate_images)
+                                                            ui.notify('No visual scenes found in the response', color='warning')
+                                                    except Exception as e:
+                                                        ui.notify(f'Failed to generate images: {str(e)}', color='negative', timeout=5000)
+                                                    finally:
+                                                        regenerate_button.props('loading=false')
+                                                
+                                                regenerate_button.on('click', regenerate_images)
                                 
                                 # Update appearance display if provided
                                 if response.get("appearance") and len(response["appearance"]) > 0:
