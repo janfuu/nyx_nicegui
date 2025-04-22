@@ -76,29 +76,48 @@ class Lightbox:
         current_idx = self.current_index
         new_idx = current_idx + direction
         if 0 <= new_idx < len(self.image_list):
+            print(f"Navigating from image {current_idx+1} to {new_idx+1} of {len(self.image_list)}")
             self._open(self.image_list[new_idx])
+        else:
+            print(f"Cannot navigate: current={current_idx+1}, requested={new_idx+1}, total={len(self.image_list)}")
 
     def _open(self, url: str) -> None:
-        self.large_image.set_source(url)
-        current_idx = self.image_list.index(url)
-        self.current_index = current_idx
-        self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
-        
-        # Update prompt information if available
-        if current_idx < len(self.prompt_list) and self.prompt_list[current_idx]:
-            self.original_prompt.content = f"**Original prompt:** {self.prompt_list[current_idx]}"
-        else:
-            self.original_prompt.content = ""
-        
-        if current_idx < len(self.parsed_prompt_list) and self.parsed_prompt_list[current_idx]:
-            self.parsed_prompt.content = f"**Parsed prompt:** {self.parsed_prompt_list[current_idx]}"
-        else:
-            self.parsed_prompt.content = ""
-        
-        self.dialog.open()
+        try:
+            print(f"Opening image URL: {url}")
+            self.large_image.set_source(url)
+            current_idx = self.image_list.index(url)
+            self.current_index = current_idx
+            self.counter.text = f'{current_idx + 1} / {len(self.image_list)}'
+            
+            # Update prompt information if available
+            if current_idx < len(self.prompt_list) and self.prompt_list[current_idx]:
+                self.original_prompt.content = f"**Original prompt:** {self.prompt_list[current_idx]}"
+            else:
+                self.original_prompt.content = ""
+            
+            if current_idx < len(self.parsed_prompt_list) and self.parsed_prompt_list[current_idx]:
+                self.parsed_prompt.content = f"**Parsed prompt:** {self.parsed_prompt_list[current_idx]}"
+            else:
+                self.parsed_prompt.content = ""
+            
+            self.dialog.open()
+        except Exception as e:
+            print(f"Error in lightbox._open: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
 
 # Initialize the chat pipeline
 chat_pipeline = ChatPipeline()
+
+# Helper function to clean response text by removing image tags
+def clean_response_text(text):
+    """Remove <image> and <thought> tags from response text while preserving the flow of conversation"""
+    import re
+    # Replace each <image>...</image> tag with a simple [Image] placeholder
+    cleaned = re.sub(r'<image>(.*?)</image>', '[Image]', text, flags=re.DOTALL)
+    # Replace each <thought>...</thought> tag with nothing (remove completely)
+    cleaned = re.sub(r'<thought>(.*?)</thought>', '', cleaned, flags=re.DOTALL)
+    return cleaned
 
 def content() -> None:
     # Initialize memory system
@@ -239,23 +258,19 @@ def content() -> None:
                                     
                                     # If image tags were found, create mock image data
                                     if image_tags:
-                                        # Use placeholder images from the assets folder
-                                        image_urls = [
-                                            '/assets/placeholder_1.jpg',
-                                            '/assets/placeholder_2.jpg',
-                                            '/assets/placeholder_3.jpg',
-                                            '/assets/placeholder_4.jpg'
-                                        ]
+                                        # Use nyx_avatar.png for all placeholders but ensure unique URLs for navigation
+                                        avatar_path = '/assets/images/nyx_avatar.png'
                                         
-                                        # Create mock image entries (use fewer images than tags if we have more tags)
+                                        # Create mock image entries for each tag
                                         for i, tag in enumerate(image_tags):
-                                            if i < len(image_urls):
-                                                mock_response['images'].append({
-                                                    'url': image_urls[i % len(image_urls)],  # Cycle through placeholders
-                                                    'description': tag.strip(),
-                                                    'original_prompt': tag.strip(),
-                                                    'parsed_prompt': f"Parsed version of: {tag.strip()}"
-                                                })
+                                            # Add a query parameter to make each URL unique
+                                            unique_url = f"{avatar_path}?id={i}"
+                                            mock_response['images'].append({
+                                                'url': unique_url,  # Use unique URLs for each image
+                                                'description': tag.strip(),
+                                                'original_prompt': tag.strip(),
+                                                'parsed_prompt': f"Parsed version of: {tag.strip()}"
+                                            })
                                     
                                     response = mock_response
                                 else:
@@ -269,36 +284,27 @@ def content() -> None:
                                 with chat_box:
                                     # Create a message container for text and related images
                                     with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
-                                        # First show the text response with markdown formatting
-                                        ui.markdown(response['text']).classes('text-white')
+                                        # Clean response text by removing image tags before displaying
+                                        cleaned_text = clean_response_text(response['text'])
+                                        ui.markdown(cleaned_text).classes('text-white')
                                         
-                                        # Display any thoughts in a subtle way
+                                        # Update the side panels with thoughts, mood, and appearance
+                                        # But don't display them in the chat response anymore
                                         if response.get("thoughts"):
-                                            ui.separator().classes('my-2')
-                                            with ui.expansion('THOUGHTS', icon='psychology').classes('w-full'):
-                                                for thought in response["thoughts"]:
-                                                    ui.markdown(f"*{thought}*").classes('text-gray-300 text-sm italic pl-4')
-                                                    thoughts_display.content = thought
+                                            for thought in response["thoughts"]:
+                                                thoughts_display.content = thought
                                         
-                                        # Display mood update
                                         if response.get("mood"):
-                                            ui.separator().classes('my-2')
-                                            with ui.expansion('MOOD', icon='mood').classes('w-full'):
-                                                ui.markdown(f"*{response['mood']}*").classes('text-blue-300 text-sm italic pl-4')
-                                                mood_display.content = response["mood"]
+                                            mood_display.content = response["mood"]
                                         
-                                        # Display appearance changes
                                         if response.get("appearance"):
-                                            ui.separator().classes('my-2')
-                                            with ui.expansion('APPEARANCE', icon='face').classes('w-full'):
-                                                for appearance_change in response["appearance"]:
-                                                    ui.markdown(f"*{appearance_change}*").classes('text-purple-300 text-sm italic pl-4')
-                                                    appearance_display.content = appearance_change
+                                            for appearance_change in response["appearance"]:
+                                                appearance_display.content = appearance_change
                                         
                                         # Display generated images if present
                                         if response.get("images") and len(response["images"]) > 0:
                                             ui.separator().classes('my-2')
-                                            with ui.row().classes('q-gutter-md flex-wrap'):
+                                            with ui.row().classes('q-gutter-sm flex-wrap justify-center'):
                                                 # Create a list to store image generation tasks
                                                 tasks = []
                                                 containers = []
@@ -307,10 +313,10 @@ def content() -> None:
                                                 for image_data in response["images"]:
                                                     if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
                                                         try:
-                                                            # Create a card for each image
+                                                            # Create a card for each image - make it much smaller
                                                             with ui.card().classes('q-pa-xs'):
-                                                                loading = ui.spinner('default', size='xl').props('color=primary')
-                                                                container = ui.button().props('flat dense').classes('w-[300px] h-[300px] overflow-hidden')
+                                                                loading = ui.spinner('default', size='md').props('color=primary')
+                                                                container = ui.button().props('flat dense').classes('w-[120px] h-[120px] overflow-hidden')
                                                                 with container:
                                                                     img = ui.image().props('fit=cover').classes('w-full h-full')
                                                                     img.visible = False
@@ -331,30 +337,29 @@ def content() -> None:
                                                             ui.notify(f"Error displaying image: {str(e)}", type='negative')
                                                 
                                                 # Update UI for all images
-                                                for task in tasks:
+                                                for i, task in enumerate(tasks):
                                                     try:
+                                                        # Get the right image data for this task
+                                                        current_image = response["images"][i]
+                                                        
                                                         task['loading'].visible = False
-                                                        task['img'].set_source(image_data["url"])
+                                                        task['img'].set_source(current_image["url"])
                                                         task['img'].visible = True
                                                         
-                                                        # Extract UUID from URL path for image ID
-                                                        try:
-                                                            image_uuid = image_data["url"].split('/')[-1].split('.')[0]
-                                                        except:
-                                                            from datetime import datetime
-                                                            image_uuid = f"img_{int(datetime.now().timestamp())}"
+                                                        # Generate a guaranteed unique ID for each image
+                                                        image_uuid = f"img_{int(time.time())}_{i}"
                                                             
                                                         # Add to lightbox with prompts
                                                         lightbox.add_image(
-                                                            thumb_url=image_data["url"],
-                                                            orig_url=image_data["url"],
+                                                            thumb_url=current_image["url"],
+                                                            orig_url=current_image["url"],
                                                             image_id=image_uuid,
-                                                            original_prompt=image_data.get("original_prompt", image_data.get("description", "")),
-                                                            parsed_prompt=image_data.get("parsed_prompt", "")
+                                                            original_prompt=current_image.get("original_prompt", current_image.get("description", "")),
+                                                            parsed_prompt=current_image.get("parsed_prompt", "")
                                                         )
                                                         
                                                         # Set up click handler - update to use the lightbox
-                                                        task['button'].on('click', lambda url=image_data["url"]: lightbox._open(url))
+                                                        task['button'].on('click', lambda url=current_image["url"]: lightbox._open(url))
                                                     except Exception as e:
                                                         print(f"Error updating image display: {str(e)}")
                                                         task['loading'].visible = False
@@ -439,7 +444,7 @@ def content() -> None:
                                                                     
                                                                     for original_tag, scene, image_url in image_data:
                                                                         if image_url:
-                                                                            with ui.card().classes('w-[180px] p-1 bg-gray-800'):
+                                                                            with ui.card().classes('w-[120px] p-1 bg-gray-800'):
                                                                                 # Extract UUID from URL path for image ID
                                                                                 try:
                                                                                     image_uuid = image_url.split('/')[-1].split('.')[0]
