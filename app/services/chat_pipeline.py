@@ -132,6 +132,13 @@ class ChatPipeline:
                 self.memory_system.add_appearance_change(change)  # Store as a change if this method exists
             self.logger.info(f"Added {len(parsed_content['appearance'])} appearance changes")
         
+        # Process clothing changes
+        if parsed_content.get("clothing"):
+            for change in parsed_content["clothing"]:
+                self.memory_system.add_clothing(change)  # Store in clothing table
+                self.memory_system.add_clothing_change(change)  # Store as a change if this method exists
+            self.logger.info(f"Added {len(parsed_content['clothing'])} clothing changes")
+        
         # Process location changes
         if parsed_content.get("location"):
             self.memory_system.update_location(parsed_content["location"])
@@ -170,15 +177,25 @@ class ChatPipeline:
         
         if image_tags:
             try:
+                # IMPORTANT: Re-fetch all character state AFTER processing the response elements
+                # This ensures we use the UPDATED state for image generation
                 current_appearance = self.memory_system.get_recent_appearances(1)
                 current_appearance_text = current_appearance[0]["description"] if current_appearance else None
                 current_mood = self.memory_system.get_current_mood()
                 current_location = self.memory_system.get_recent_locations(1)
                 current_location_text = current_location[0]["description"] if current_location else None
+                current_clothing = self.memory_system.get_recent_clothing(1)
+                current_clothing_text = current_clothing[0]["description"] if current_clothing else None
+                
+                # Get the full character state AFTER updates
+                character_state = self.memory_system.get_character_state()
+                
+                self.logger.info(f"Using updated character state for image generation: mood={current_mood}, clothing={current_clothing_text[:30] if current_clothing_text else 'None'}")
                 
                 image_context = {
                     "appearance": current_appearance_text,
                     "mood": current_mood,
+                    "clothing": current_clothing_text,
                     "location": current_location_text,
                     "images": [{"content": tag["content"], "sequence": tag["sequence"]} for tag in image_tags]
                 }
@@ -296,6 +313,14 @@ class ChatPipeline:
             embedder = get_embedder()
             qdrant = QdrantImageStore()
             
+            # Get the current clothing from memory system
+            clothing = None
+            try:
+                current_clothing = self.memory_system.get_recent_clothing(1)
+                clothing = current_clothing[0]["description"] if current_clothing else None
+            except Exception as e:
+                self.logger.error(f"[Qdrant] Error getting clothing: {str(e)}")
+            
             self.logger.info(f"[Qdrant] Embedding image from URL: {image_url}")
             image_vector, thumbnail_b64 = embedder.embed_image_from_url(image_url)
             self.logger.info(f"[Qdrant] Image embedding completed successfully: {image_vector is not None}")
@@ -320,6 +345,7 @@ class ChatPipeline:
                     "thumbnail_b64": thumbnail_b64,
                     "mood": mood,
                     "appearance": appearance,
+                    "clothing": clothing,
                     "location": location,
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "model": "runware",

@@ -6,6 +6,7 @@ from ..core.memory_system import MemorySystem
 import httpx
 import json
 from typing import List
+import re
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
@@ -239,15 +240,16 @@ chat_pipeline = ChatPipeline()
 # Helper function to clean response text by removing image tags
 def clean_response_text(text):
     """Remove tags from response text while preserving conversation flow"""
-    import re
-    
     # Define visible tags (these get replaced with placeholders)
     visible_tag_replacements = {
         r'<image>(.*?)</image>': '[Image]'
     }
     
-    # Define tags for special styling
-    styled_tags = ['desire', 'internal', 'fantasy', 'hidden', 'private', 'thought', 'mood', 'appearance', 'location']
+    # Define tags for removable tags (these should be removed from the display)
+    removable_tags = ['thought', 'mood', 'appearance', 'clothing', 'location']
+    
+    # Define tags for special styling (these get styled but kept)
+    styled_tags = ['desire', 'internal', 'fantasy', 'hidden', 'private']
     
     # Define hidden tags (these get completely removed)
     hidden_tags = ['secret']
@@ -257,15 +259,73 @@ def clean_response_text(text):
     for pattern, replacement in visible_tag_replacements.items():
         cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
     
+    # Process tags that should be removed from display
+    for tag in removable_tags:
+        # First, handle unclosed tags by closing them
+        # Look for an opening tag not followed by a closing tag
+        unclosed_pattern = f'<{tag}>(.*?)(?!</{tag}>)(?=<[a-z]+>|[.]|[\n]|$)'
+        
+        # Find all matches (there could be multiple unclosed tags)
+        index_shift = 0
+        for match in re.finditer(unclosed_pattern, cleaned, flags=re.DOTALL):
+            start_idx = match.start() + index_shift
+            end_idx = match.end() + index_shift
+            content = match.group(1)
+            
+            # Close the tag properly by inserting the closing tag
+            closing_tag = f'</{tag}>'
+            cleaned = cleaned[:end_idx] + closing_tag + cleaned[end_idx:]
+            
+            # Update the index shift for subsequent matches
+            index_shift += len(closing_tag)
+            
+        # Now handle properly closed tags (which include those we just fixed)
+        pattern = f'<{tag}>(.*?)</{tag}>'
+        cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
+    
     # Process styled tags (keep content but add CSS styling)
     for tag in styled_tags:
+        # First, handle unclosed tags by closing them
+        unclosed_pattern = f'<{tag}>(.*?)(?!</{tag}>)(?=<[a-z]+>|[.]|[\n]|$)'
+        
+        # Find all matches (there could be multiple unclosed tags)
+        index_shift = 0
+        for match in re.finditer(unclosed_pattern, cleaned, flags=re.DOTALL):
+            start_idx = match.start() + index_shift
+            end_idx = match.end() + index_shift
+            
+            # Close the tag properly by inserting the closing tag
+            closing_tag = f'</{tag}>'
+            cleaned = cleaned[:end_idx] + closing_tag + cleaned[end_idx:]
+            
+            # Update the index shift for subsequent matches
+            index_shift += len(closing_tag)
+        
+        # Now handle properly closed tags (which include those we just fixed)
         pattern = f'<{tag}>(.*?)</{tag}>'
         # Replace with styled span
         replacement = f'<span class="styled-tag {tag}">\\1</span>'
         cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
     
-    # Remove hidden tags completely
+    # Process hidden tags
     for tag in hidden_tags:
+        # First, handle unclosed tags by closing them
+        unclosed_pattern = f'<{tag}>(.*?)(?!</{tag}>)(?=<[a-z]+>|[.]|[\n]|$)'
+        
+        # Find all matches (there could be multiple unclosed tags)
+        index_shift = 0
+        for match in re.finditer(unclosed_pattern, cleaned, flags=re.DOTALL):
+            start_idx = match.start() + index_shift
+            end_idx = match.end() + index_shift
+            
+            # Close the tag properly by inserting the closing tag
+            closing_tag = f'</{tag}>'
+            cleaned = cleaned[:end_idx] + closing_tag + cleaned[end_idx:]
+            
+            # Update the index shift for subsequent matches
+            index_shift += len(closing_tag)
+        
+        # Now handle properly closed tags (which include those we just fixed)
         pattern = f'<{tag}>(.*?)</{tag}>'
         cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
     
@@ -274,8 +334,6 @@ def clean_response_text(text):
 # Function to check if text contains hidden content tags
 def has_hidden_content(text):
     """Check if the text contains any secret content tags"""
-    import re
-    
     # Only secret tags are completely hidden now
     hidden_tags = ['secret']
     
@@ -296,6 +354,7 @@ def content() -> None:
     initial_mood = memory_system.get_current_mood()
     initial_thoughts = memory_system.get_recent_thoughts(1)
     initial_appearances = memory_system.get_recent_appearances(1)
+    initial_clothing = memory_system.get_recent_clothing(1)
     
     # Test mode flag
     test_mode = False
@@ -359,6 +418,12 @@ def content() -> None:
                 with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
                     initial_appearance = initial_appearances[0]["description"] if initial_appearances else "A young woman with cybernetic enhancements, circuits glowing faintly beneath her skin..."
                     appearance_display = ui.markdown(initial_appearance).classes('text-sm')
+
+                # Character's current clothing display
+                ui.label('CLOTHING').classes('text-pink-500 text-sm')
+                with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
+                    initial_clothing_text = initial_clothing[0]["description"] if initial_clothing else "Simple, form-fitting black bodysuit with glowing blue circuit patterns..."
+                    clothing_display = ui.markdown(initial_clothing_text).classes('text-sm')
 
                 # Character's thoughts display
                 ui.label('THOUGHTS').classes('text-gray-500 text-sm')
@@ -444,16 +509,23 @@ def content() -> None:
                             # Start a heartbeat to keep connection alive
                             heartbeat_task = setup_heartbeat()
                             
+                            # Initialize update flags
+                            has_thoughts_update = False
+                            has_mood_update = False
+                            has_appearance_update = False
+                            has_clothing_update = False
+                            has_location_update = False
+                            
                             try:
                                 if test_mode:
                                     # In test mode, create a mock response that echoes the input
                                     # Extract all types of tags
-                                    import re
                                     image_tags = re.findall(r'<image>(.*?)</image>', current_message, re.DOTALL)
                                     thought_tags = re.findall(r'<thought>(.*?)</thought>', current_message, re.DOTALL)
                                     mood_tags = re.findall(r'<mood>(.*?)</mood>', current_message, re.DOTALL)
                                     appearance_tags = re.findall(r'<appearance>(.*?)</appearance>', current_message, re.DOTALL)
                                     location_tags = re.findall(r'<location>(.*?)</location>', current_message, re.DOTALL)
+                                    clothing_tags = re.findall(r'<clothing>(.*?)</clothing>', current_message, re.DOTALL)
                                     
                                     # Also look for secret tags that will be hidden but indicated with a lock icon
                                     secret_tags = re.findall(r'<secret>(.*?)</secret>', current_message, re.DOTALL)
@@ -494,6 +566,26 @@ def content() -> None:
                                         else:
                                             # Fallback to the most recent tag if database query fails
                                             appearance_display.content = appearance_tags[-1]
+                                    
+                                    # Only include clothing if clothing tags were found
+                                    if clothing_tags:
+                                        mock_response['clothing'] = clothing_tags
+                                        # Store clothing changes in test mode too
+                                        for clothing in clothing_tags:
+                                            memory_system.add_clothing(clothing)
+                                            
+                                        # Update the display with most recent clothing from database 
+                                        # to ensure consistency between components
+                                        current_clothing = memory_system.get_recent_clothing(1)
+                                        if current_clothing:
+                                            clothing_display.content = current_clothing[0]["description"]
+                                        else:
+                                            # Fallback to the most recent tag if database query fails
+                                            clothing_display.content = clothing_tags[-1]
+                                        
+                                        has_clothing_update = True
+                                    else:
+                                        has_clothing_update = False
                                     
                                     # Only include location if location tags were found
                                     if location_tags:
@@ -548,16 +640,122 @@ def content() -> None:
                                         # Force a UI update to ensure the appearance display is refreshed
                                         ui.update()
                                     else:
-                                        has_appearance_update = False
+                                        # Check for unclosed appearance tags and close them
+                                        # First fix the response text by closing any unclosed tags
+                                        appearance_pattern = r'<appearance>(.*?)(?!</appearance>)(?=<[a-z]+>|\.|[\n]|$)'
+                                        fixed_text = response['text']
+                                        
+                                        # Find all matches (there could be multiple unclosed tags)
+                                        index_shift = 0
+                                        for match in re.finditer(appearance_pattern, fixed_text, flags=re.DOTALL):
+                                            start_idx = match.start() + index_shift
+                                            end_idx = match.end() + index_shift
+                                            content = match.group(1)
+                                            
+                                            # Close the tag properly by inserting the closing tag
+                                            closing_tag = '</appearance>'
+                                            fixed_text = fixed_text[:end_idx] + closing_tag + fixed_text[end_idx:]
+                                            
+                                            # Save this content to the database and update the UI
+                                            if content.strip():
+                                                memory_system.add_appearance(content.strip())
+                                                appearance_display.content = content.strip()
+                                                has_appearance_update = True
+                                                print(f"Found and closed unclosed appearance tag with content: '{content.strip()}'")
+                                            
+                                            # Update the index shift for subsequent matches
+                                            index_shift += len(closing_tag)
+                                        
+                                        # If we didn't find any unclosed tags and didn't process any updates above
+                                        if not has_appearance_update:
+                                            # Try looking for the properly closed tags in case previous code missed them
+                                            appearance_content = re.findall(r'<appearance>(.*?)</appearance>', fixed_text, re.DOTALL)
+                                            if appearance_content:
+                                                for appearance in appearance_content:
+                                                    # Check if this is a meaningful non-empty appearance update
+                                                    if appearance.strip():
+                                                        memory_system.add_appearance(appearance.strip())
+                                                        appearance_display.content = appearance.strip()
+                                                        has_appearance_update = True
+                                            else:
+                                                has_appearance_update = False
                                     
-                                    if response.get("location"):
-                                        has_location_update = True
-                                        # Get the current location from database to ensure UI is in sync
-                                        current_locations = memory_system.get_recent_locations(1)
-                                        if current_locations and location_desc:
-                                            location_desc.content = current_locations[0]["description"]
+                                    if response.get("clothing"):
+                                        # Get the last clothing entry (most recent)
+                                        last_clothing = response["clothing"][-1]
+                                        print(f"Updating clothing display with: '{last_clothing}'")
+                                        clothing_display.content = last_clothing
+                                        has_clothing_update = True
+                                        
+                                        # Store clothing in the database
+                                        for clothing in response["clothing"]:
+                                            memory_system.add_clothing(clothing)
+                                        
+                                        # Force a UI update to ensure the clothing display is refreshed
+                                        ui.update()
                                     else:
-                                        has_location_update = False
+                                        # Check for unclosed clothing tags and close them
+                                        # First fix the response text by closing any unclosed tags
+                                        clothing_pattern = r'<clothing>(.*?)(?!</clothing>)(?=<[a-z]+>|\.|[\n]|$)'
+                                        if 'fixed_text' not in locals():
+                                            fixed_text = response['text']
+                                        
+                                        # Find all matches (there could be multiple unclosed tags)
+                                        index_shift = 0
+                                        for match in re.finditer(clothing_pattern, fixed_text, flags=re.DOTALL):
+                                            start_idx = match.start() + index_shift
+                                            end_idx = match.end() + index_shift
+                                            content = match.group(1)
+                                            
+                                            # Close the tag properly by inserting the closing tag
+                                            closing_tag = '</clothing>'
+                                            fixed_text = fixed_text[:end_idx] + closing_tag + fixed_text[end_idx:]
+                                            
+                                            # Save this content to the database and update the UI
+                                            if content.strip():
+                                                memory_system.add_clothing(content.strip())
+                                                clothing_display.content = content.strip()
+                                                has_clothing_update = True
+                                                print(f"Found and closed unclosed clothing tag with content: '{content.strip()}'")
+                                            
+                                            # Update the index shift for subsequent matches
+                                            index_shift += len(closing_tag)
+                                        
+                                        # If we didn't find any unclosed tags and didn't process any updates above
+                                        if not has_clothing_update:
+                                            # Try looking for the properly closed tags in case previous code missed them
+                                            clothing_content = re.findall(r'<clothing>(.*?)</clothing>', fixed_text, re.DOTALL)
+                                            if clothing_content:
+                                                for clothing in clothing_content:
+                                                    # Check if this is a meaningful non-empty clothing update
+                                                    if clothing.strip():
+                                                        memory_system.add_clothing(clothing.strip())
+                                                        clothing_display.content = clothing.strip()
+                                                        has_clothing_update = True
+                                            else:
+                                                has_clothing_update = False
+                                        
+                                        # Update the response text with our fixed version that has properly closed tags
+                                        response['text'] = fixed_text
+                                
+                                if response.get("location"):
+                                    has_location_update = True
+                                    # Get the current location from database to ensure UI is in sync
+                                    current_locations = memory_system.get_recent_locations(1)
+                                    if current_locations and location_desc:
+                                        location_desc.content = current_locations[0]["description"]
+                                else:
+                                    has_location_update = False
+                                
+                                # Final check to ensure UI displays are in sync with database state
+                                # This ensures any state changes applied by the pipeline are reflected in the UI
+                                current_appearances = memory_system.get_recent_appearances(1)
+                                if current_appearances:
+                                    appearance_display.content = current_appearances[0]["description"]
+                                    
+                                current_clothing = memory_system.get_recent_clothing(1)
+                                if current_clothing:
+                                    clothing_display.content = current_clothing[0]["description"]
                                 
                                 # Display assistant response with original formatting
                                 with chat_box:
@@ -592,8 +790,18 @@ def content() -> None:
                                         else:
                                             has_mood_update = False
                                         
+                                        # Add back the clothing update code that was removed
+                                        if response.get("clothing"):
+                                            # Get the last clothing entry (most recent)
+                                            last_clothing = response["clothing"][-1]
+                                            print(f"Updating clothing display in UI section with: '{last_clothing}'")
+                                            clothing_display.content = last_clothing
+                                            has_clothing_update = True
+                                        else:
+                                            has_clothing_update = False
+                                        
                                         # Add status indicators if any updates exist
-                                        has_updates = has_thoughts_update or has_mood_update or has_appearance_update or has_location_update
+                                        has_updates = has_thoughts_update or has_mood_update or has_appearance_update or has_location_update or has_clothing_update
                                         
                                         if has_updates:
                                             ui.separator().classes('my-2')
@@ -608,6 +816,9 @@ def content() -> None:
                                                 
                                                 if has_appearance_update:
                                                     ui.icon('face', color='pink').classes('text-lg')
+                                                
+                                                if has_clothing_update:
+                                                    ui.icon('checkroom', color='pink').classes('text-lg')
                                                 
                                                 if has_location_update:
                                                     ui.icon('place', color='green').classes('text-lg')
@@ -662,7 +873,6 @@ def content() -> None:
                                                         image_uuid = str(uuid.uuid4())
                                                         
                                                         # Get the original prompt from the image tags in the raw response text
-                                                        import re
                                                         image_tags = re.findall(r'<image>(.*?)</image>', response['text'], re.DOTALL)
                                                         original_prompt = ""
                                                         if i < len(image_tags):
@@ -730,7 +940,6 @@ def content() -> None:
                                                         current_location_text = current_location[0]["description"] if current_location else None
                                                         
                                                         # Extract image tags from response
-                                                        import re
                                                         image_pattern = r'<image>(.*?)</image>'
                                                         image_tags = re.findall(image_pattern, response['text'], re.DOTALL)
                                                         
@@ -802,16 +1011,19 @@ def content() -> None:
                                                                 return
                                                             
                                                             # Remove spinner now that we have images
-                                                            chat_box.remove(regen_spinner_row)
+                                                            try:
+                                                                chat_box.remove(regen_spinner_row)
+                                                            except Exception:
+                                                                # Already removed - ignore
+                                                                pass
                                                             
                                                             if image_urls and len(image_urls) > 0:
-                                                                # Clear existing images
-                                                                for child in list(chat_box.children):
-                                                                    if isinstance(child, ui.expansion) and child.text == 'GENERATED IMAGES':
-                                                                        chat_box.remove(child)
+                                                                # Clear existing images - use a safer approach
+                                                                # Instead of removing old elements, we'll just create a fresh expansion
+                                                                expansion_id = "regenerated_images_expansion"
                                                                 
-                                                                # Display regenerated images
-                                                                with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full'):
+                                                                # Display regenerated images in a new expansion
+                                                                with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full').props(f'id={expansion_id}'):
                                                                     with ui.row().classes('flex-wrap gap-2 w-full'):
                                                                         # Create a list of tuples with original tag, parsed scene, and image URL
                                                                         image_data = list(zip(image_tags, parsed_scenes, image_urls))

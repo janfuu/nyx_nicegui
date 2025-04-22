@@ -1,5 +1,6 @@
 from app.models.database import Database
 from app.models.prompt_models import PromptManager
+from app.core.state_manager import StateManager
 import json
 import time
 import sqlite3
@@ -8,7 +9,7 @@ import numpy as np
 class MemorySystem:
     def __init__(self):
         self.db = Database()
-        self.mood = None
+        self.state_manager = StateManager()  # Use the new state manager
         self.appearance_changes = []
         self.location = None
         self.thoughts = []
@@ -53,22 +54,14 @@ class MemorySystem:
         conn.commit()
         return cursor.lastrowid
     
+    # Forward state-related methods to StateManager
     def update_mood(self, mood: str):
-        self.mood = mood
+        """Update the current mood - delegates to state_manager"""
+        return self.state_manager.update_mood(mood)
         
     def get_current_mood(self):
-        """Get the most recent mood"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT mood FROM emotions ORDER BY timestamp DESC LIMIT 1"
-        )
-        
-        result = cursor.fetchone()
-        if result:
-            return result[0]
-        return "neutral"  # Default mood
+        """Get the most recent mood - delegates to state_manager"""
+        return self.state_manager.get_current_mood()
     
     def update_relationship(self, entity, parameter, value):
         """Update a relationship parameter for an entity"""
@@ -211,89 +204,46 @@ class MemorySystem:
                    for mood, intensity, timestamp in results]
         return emotions
 
+    # Appearance methods delegated to StateManager
     def add_appearance(self, description):
-        """Add an appearance description to the database"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        # Debug logging
-        from app.utils.logger import Logger
-        logger = Logger()
-        logger.info(f"Adding appearance to database: {description[:50]}...")
-        
-        cursor.execute(
-            "INSERT INTO appearance (description) VALUES (?)",
-            (description,)
-        )
-        conn.commit()
-        
-        # Log the current appearance
-        cursor.execute("SELECT id FROM appearance ORDER BY timestamp DESC LIMIT 1")
-        result = cursor.fetchone()
-        if result:
-            logger.info(f"Added appearance with ID: {result[0]}")
-        return cursor.lastrowid
+        """Add an appearance description - delegates to state_manager"""
+        return self.state_manager.add_appearance(description)
 
     def get_recent_appearances(self, limit=10):
-        """Get recent appearance descriptions"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT description, timestamp FROM appearance ORDER BY timestamp DESC LIMIT ?",
-            (limit,)
-        )
-        
-        results = cursor.fetchall()
-        appearances = [{"description": desc, "timestamp": timestamp} 
-                      for desc, timestamp in results]
-        return appearances
+        """Get recent appearance descriptions - delegates to state_manager"""
+        return self.state_manager.get_recent_appearances(limit)
+
+    # Clothing methods delegated to StateManager
+    def add_clothing(self, description):
+        """Add a clothing description - delegates to state_manager"""
+        return self.state_manager.add_clothing(description)
+
+    def get_recent_clothing(self, limit=10):
+        """Get recent clothing descriptions - delegates to state_manager"""
+        return self.state_manager.get_recent_clothing(limit)
+
+    def add_clothing_change(self, change: str):
+        """Add a clothing change - delegates to state_manager"""
+        return self.state_manager.add_clothing_change(change)
 
     def add_appearance_change(self, change: str):
-        """Add an appearance change to the list and database"""
-        # Debug logging
-        from app.utils.logger import Logger
-        logger = Logger()
-        logger.info(f"Recording appearance change: {change[:50]}...")
-        
-        # Add to in-memory list for tracking during the session
+        """Add an appearance change - delegates to state_manager"""
+        # Also keep the local tracking for session compatibility
         self.appearance_changes.append(change)
+        return self.state_manager.add_appearance_change(change)
         
-        # Also add to the database for persistence
-        row_id = self.add_appearance(change)
-        logger.info(f"Stored appearance change in database with ID: {row_id}")
-        return row_id
-        
+    # Location methods delegated to StateManager
     def update_location(self, location: str):
-        """Update the current location"""
-        self.location = location
+        """Update the current location - delegates to state_manager"""
+        return self.state_manager.update_location(location)
         
     def add_location(self, description: str):
-        """Add a location description to the database"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "INSERT INTO locations (description) VALUES (?)",
-            (description,)
-        )
-        conn.commit()
-        return cursor.lastrowid
+        """Add a location description - delegates to state_manager"""
+        return self.state_manager.add_location(description)
         
     def get_recent_locations(self, limit=10):
-        """Get recent location descriptions"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT description, timestamp FROM locations ORDER BY timestamp DESC LIMIT ?",
-            (limit,)
-        )
-        
-        results = cursor.fetchall()
-        locations = [{"description": desc, "timestamp": timestamp} 
-                    for desc, timestamp in results]
-        return locations
+        """Get recent location descriptions - delegates to state_manager"""
+        return self.state_manager.get_recent_locations(limit)
 
     def restore_prompts_from_templates(self):
         """Restore prompts from default templates"""
@@ -351,21 +301,8 @@ class MemorySystem:
         )
         ''')
         
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS appearance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            description TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS locations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            description TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
+        # Initialize the state table via StateManager
+        self.state_manager._create_state_table()
         
         # Initialize prompts
         prompt_manager = PromptManager()
@@ -373,3 +310,13 @@ class MemorySystem:
         # Commit all changes
         conn.commit()
         return True
+        
+    # New method to expose the full state
+    def get_character_state(self):
+        """Get the complete character state"""
+        return self.state_manager.get_state()
+        
+    # New method to update multiple state values at once
+    def update_state(self, **kwargs):
+        """Update multiple state values at once"""
+        return self.state_manager.update(**kwargs)

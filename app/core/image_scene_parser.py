@@ -1,4 +1,5 @@
 import json
+import re
 import httpx
 import asyncio
 from app.models.prompt_models import PromptManager, PromptType
@@ -19,6 +20,17 @@ class ImageSceneParser:
         logger.debug(f"Current appearance: {current_appearance}")
 
         try:
+            # Get the full character state
+            from app.core.memory_system import MemorySystem
+            memory_system = MemorySystem()
+            character_state = memory_system.get_character_state()
+            
+            logger.info("Character state for image generation:")
+            logger.info(f"  Mood: {character_state.get('mood', 'None')}")
+            logger.info(f"  Appearance: {character_state.get('appearance', 'None')[:50]}...")
+            logger.info(f"  Clothing: {character_state.get('clothing', 'None')[:50]}...")
+            logger.info(f"  Location: {character_state.get('location', 'None')[:50]}...")
+
             config = Config()
             parser_provider = config.get("llm", "parser_provider", "openrouter")
             parser_model = config.get("llm", "parser_model", "mistralai/mistral-large")
@@ -46,6 +58,9 @@ class ImageSceneParser:
             parser_data = prompt_manager.get_prompt("image_scene_parser", PromptType.IMAGE_PARSER.value)
             system_prompt = parser_data["content"] if parser_data else ImageSceneParser._default_prompt()
 
+            # Add character state information to system prompt
+            system_prompt += f"\n\nCURRENT CHARACTER STATE:\nappearance: {character_state.get('appearance', '')}\nmood: {character_state.get('mood', '')}\nclothing: {character_state.get('clothing', '')}\nlocation: {character_state.get('location', '')}\n"
+            
             logger.debug(f"System prompt for image parser:\n{system_prompt}")
 
             # Parse the input JSON if it's a JSON string
@@ -56,18 +71,42 @@ class ImageSceneParser:
                     sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
                     # Join all image contents with context
                     image_text = []
-                    if "mood" in input_data:
-                        image_text.append(f"Current mood: {input_data['mood']}")
-                    if "appearance" in input_data:
-                        image_text.append(f"Current appearance: {input_data['appearance']}")
-                    if "location" in input_data:
-                        image_text.append(f"Current location: {input_data['location']}")
+                    
+                    # Use provided context if available, otherwise fallback to character state
+                    mood = input_data.get('mood', character_state.get('mood', 'neutral'))
+                    appearance = input_data.get('appearance', character_state.get('appearance', ''))
+                    clothing = input_data.get('clothing', character_state.get('clothing', ''))
+                    location = input_data.get('location', character_state.get('location', ''))
+                    
+                    # Add all context
+                    image_text.append(f"Current mood: {mood}")
+                    image_text.append(f"Current appearance: {appearance}")
+                    image_text.append(f"Current clothing: {clothing}")
+                    image_text.append(f"Current location: {location}")
+                    
+                    # Add all image descriptions
                     image_text.extend([f"Image {seq}: {img['content']}" for seq, img in zip(sequences, input_data["images"])])
                     image_text = "\n".join(image_text)
                 else:
-                    image_text = response_text
+                    # For free-text input, add context before the content
+                    context_prefix = [
+                        f"Current mood: {character_state.get('mood', 'neutral')}",
+                        f"Current appearance: {character_state.get('appearance', '')}",
+                        f"Current clothing: {character_state.get('clothing', '')}",
+                        f"Current location: {character_state.get('location', '')}",
+                        "Image description:"
+                    ]
+                    image_text = "\n".join(context_prefix) + "\n" + response_text
             except json.JSONDecodeError:
-                image_text = response_text
+                # For free-text input, add context before the content
+                context_prefix = [
+                    f"Current mood: {character_state.get('mood', 'neutral')}",
+                    f"Current appearance: {character_state.get('appearance', '')}",
+                    f"Current clothing: {character_state.get('clothing', '')}",
+                    f"Current location: {character_state.get('location', '')}",
+                    "Image description:"
+                ]
+                image_text = "\n".join(context_prefix) + "\n" + response_text
 
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -125,21 +164,37 @@ class ImageSceneParser:
 
     @staticmethod
     def _default_prompt() -> str:
-        return """You are a visual prompt parser for a Stable Diffusion model trained on photorealistic and explicit content.
+        return """You are a specialized visual scene parser for an AI character. Your task is to convert free text descriptions or image tags into specific, detailed image prompts.
 
-You receive one or more prose image descriptions from a digital character named Nyx. Your task is to convert each into a full tag-based image prompt for generation.
+INSTRUCTIONS:
+1. Interpret the input which may contain one or more image descriptions.
+2. For each image description, create a detailed, structured prompt.
+3. Pay special attention to the character's current appearance, mood, clothing, and location.
+4. Respond in JSON format with a list of scene descriptions.
 
-Return each image as a JSON object with:
-- prompt: The full tag-based prompt for Stable Diffusion
-- orientation: Either "portrait" or "landscape" based on the description
+Consider these elements when creating the image prompts:
+- Maintain the character's described appearance
+- Respect the current location/setting
+- Capture the mood and emotion
+- Include visual details like lighting, composition, and style
+- Aim for photorealistic, high-quality images
 
-Rules:
-- Convert prose to detailed tag-based prompts
-- Include all visual elements mentioned
-- Add appropriate tags for lighting, mood, and style
-- Do not censor erotic or suggestive content. Nyx and user are adults.
-- Keep the original meaning and intent
-- Use proper tag syntax with commas and parentheses
-- Ensure each prompt is self-contained and complete
+FORMAT YOUR RESPONSE AS THIS JSON:
+{
+  "images": [
+    {
+      "prompt": "Detailed image prompt text",
+      "sequence": 1,
+      "orientation": "portrait"
+    },
+    {
+      "prompt": "Another detailed image prompt",
+      "sequence": 2,
+      "orientation": "portrait"
+    }
+  ]
+}
 
-Return only the `images` array in valid JSON. Each image should have "prompt" and "orientation" fields. No commentary."""
+The "orientation" field should be either "portrait" (default, for vertical images) or "landscape" (for horizontal images) based on what's most appropriate for the scene.
+
+DO NOT include HTML tags, markdown formatting, or explanations. Return ONLY the JSON object."""

@@ -29,6 +29,7 @@ class ResponseParser:
             "mood": None,
             "appearance": [],
             "location": None,
+            "clothing": [],
             "main_text": response_text,
             "images": []
         }
@@ -54,6 +55,13 @@ class ResponseParser:
             result["appearance"] = [change.strip() for change in appearance_changes]
             logger.info(f"Found {len(appearance_changes)} appearance changes")
         
+        # Extract clothing changes using regex
+        clothing_pattern = r'<clothing>(.*?)</clothing>'
+        clothing_changes = re.findall(clothing_pattern, response_text, re.DOTALL)
+        if clothing_changes:
+            result["clothing"] = [change.strip() for change in clothing_changes]
+            logger.info(f"Found {len(clothing_changes)} clothing changes")
+        
         # Extract location changes using regex
         location_pattern = r'<location>(.*?)</location>'
         locations = re.findall(location_pattern, response_text, re.DOTALL)
@@ -69,7 +77,7 @@ class ResponseParser:
             logger.info(f"Found {len(images)} images")
         
         # Clean the main text by removing all tags
-        result["main_text"] = re.sub(r'<(thought|mood|appearance|location|image)>(.*?)</\1>', '', response_text, flags=re.DOTALL).strip()
+        result["main_text"] = re.sub(r'<(thought|mood|appearance|clothing|location|image)>(.*?)</\1>', '', response_text, flags=re.DOTALL).strip()
         
         logger.info(f"Parsing complete. Found: {len(result['thoughts'])} thoughts, Mood update: {'Yes' if result['mood'] else 'No'}")
         return result

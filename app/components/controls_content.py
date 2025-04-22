@@ -353,17 +353,10 @@ CREATE TABLE IF NOT EXISTS relationships (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Appearance Table
-CREATE TABLE IF NOT EXISTS appearance (
+-- Character State Table
+CREATE TABLE IF NOT EXISTS character_state (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    description TEXT NOT NULL,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- Locations Table
-CREATE TABLE IF NOT EXISTS locations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    description TEXT NOT NULL,
+    state_json TEXT NOT NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```""")
@@ -371,6 +364,40 @@ CREATE TABLE IF NOT EXISTS locations (
             ui.button('Close', on_click=tables_dialog.close).classes('self-end')
     
     tables_dialog.open()
+
+def display_state_info():
+    """Display information about the state system"""
+    memory_system = MemorySystem()
+    state_dialog = ui.dialog()
+    
+    with state_dialog:
+        with ui.card().classes('w-full min-w-[600px]'):
+            ui.markdown("### Character State System")
+            
+            # Display current state
+            ui.markdown("#### Current State")
+            current_state = memory_system.get_character_state()
+            with ui.card().classes('bg-gray-800 p-4'):
+                ui.markdown(f"```json\n{json.dumps(current_state, indent=2)}\n```").classes('font-mono')
+            
+            # Get state history
+            ui.markdown("#### State History")
+            ui.markdown("Recent state changes (newest first):").classes('text-sm text-gray-500')
+            
+            state_history = memory_system.state_manager.get_state_history(10)
+            
+            if state_history:
+                with ui.scroll_area().classes('h-96 w-full'):
+                    for i, entry in enumerate(state_history):
+                        with ui.expansion(f"State #{len(state_history)-i}: {entry['timestamp']}").classes('w-full'):
+                            with ui.card().classes('bg-gray-800 p-4'):
+                                ui.markdown(f"```json\n{json.dumps(entry['state'], indent=2)}\n```").classes('font-mono')
+            else:
+                ui.label("No state history available").classes('italic text-gray-500')
+            
+            ui.button('Close', on_click=state_dialog.close).classes('self-end')
+    
+    state_dialog.open()
 
 def initialize_memory_system():
     """Initialize the memory system tables and show result"""
@@ -729,6 +756,7 @@ def content() -> None:
         
         with ui.column().classes('gap-1 w-full'):
             ui.button('Check Database Tables', on_click=check_memory_tables).props('outline')
+            ui.button('View State Management', on_click=display_state_info).props('outline color="purple"')
             ui.button('Initialize Memory System', on_click=initialize_memory_system).props('color="primary"')
             ui.button('Recover Memory System', on_click=recover_memory_system).props('color="warning"')
             ui.button('View Memory Data', on_click=display_memory_data).props('color="secondary"')
