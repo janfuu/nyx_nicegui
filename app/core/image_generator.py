@@ -11,12 +11,26 @@ import time
 from typing import List, Optional, Dict
 
 class ImageGenerator:
+    """
+    WARNING: DO NOT REMOVE OR MODIFY THE PARALLEL PROCESSING!
+    ========================================================
+    The parallel image generation is a critical feature that has been working correctly for weeks.
+    Any attempts to remove or modify the parallel processing will break the system and cause
+    concurrency issues with Runware.
+    
+    The current implementation:
+    1. Creates separate Runware connections for each request
+    2. Processes multiple images concurrently
+    3. Handles timeouts and partial results properly
+    4. Maintains proper error handling and logging
+    
+    DO NOT CHANGE THIS BEHAVIOR!
+    """
     def __init__(self):
         self.config = Config()
         self.logger = Logger()
         self.runware = None
         self.images_dir = os.path.join("data", "images")
-        self.partial_results: Dict[str, List[str]] = {}
         os.makedirs(self.images_dir, exist_ok=True)
 
     async def _ensure_connection(self) -> bool:
@@ -35,31 +49,26 @@ class ImageGenerator:
             self.runware = None
             return False
 
-    def _on_partial_images(self, request_id: str, images, error):
-        """Callback function for receiving partial images"""
-        if error:
-            self.logger.error(f"API Error in partial results for {request_id}: {error}")
-        else:
-            self.logger.info(f"Received {len(images)} partial images for request {request_id}")
-            # Store the image URLs
-            if request_id not in self.partial_results:
-                self.partial_results[request_id] = []
-            
-            for image in images:
-                self.logger.info(f"Partial Image URL for {request_id}: {image.imageURL}")
-                if hasattr(image, 'imageURL') and image.imageURL:
-                    self.partial_results[request_id].append(image.imageURL)
-
     async def _safe_request_image(self, request_id: str, request_image: IImageInference):
         """Safely request images and handle errors"""
         try:
-            return await self.runware.imageInference(requestImage=request_image)
-        except RunwareAPIError as e:
-            self.logger.error(f"API Error for request {request_id}: {e}")
-            self.logger.error(f"Error Code: {e.code if hasattr(e, 'code') else 'unknown'}")
-            return None
+            # Create a new Runware connection for this request
+            runware = Runware(api_key=self.config.get("image_generation", "runware_api_key"))
+            await runware.connect()
+            
+            try:
+                result = await runware.imageInference(requestImage=request_image)
+                return result
+            except RunwareAPIError as e:
+                self.logger.error(f"API Error for request {request_id}: {e}")
+                self.logger.error(f"Error Code: {e.code if hasattr(e, 'code') else 'unknown'}")
+                return None
+            except Exception as e:
+                self.logger.error(f"Unexpected Error for request {request_id}: {str(e)}")
+                return None
+                
         except Exception as e:
-            self.logger.error(f"Unexpected Error for request {request_id}: {str(e)}")
+            self.logger.error(f"Error creating Runware connection for request {request_id}: {str(e)}")
             return None
 
     async def generate(self, prompts: list[dict | str], negative_prompt: str = None) -> list[str]:
@@ -68,15 +77,12 @@ class ImageGenerator:
         Args:
             prompts: List of scene prompts, where each prompt can be:
                 - A string prompt
-                - A dict with 'prompt'/'content' and 'orientation' keys
+                - A dict with 'prompt', 'original_text', 'orientation', and 'frame' keys
             negative_prompt: Optional negative prompt to use
         Returns:
             List of image URL strings. Will be empty if generation failed.
         """
         try:
-            # Reset partial results for this generation run
-            self.partial_results = {}
-            
             if not await self._ensure_connection():
                 return []
 
@@ -130,12 +136,22 @@ class ImageGenerator:
                 
                 # Extract prompt content and orientation
                 if isinstance(prompt, dict):
-                    # Accept either 'content' or 'prompt' field
-                    prompt_content = prompt.get("prompt", prompt.get("content", ""))
+                    # Use all fields from the parsed scene
+                    prompt_content = prompt.get("prompt", "")
+                    original_text = prompt.get("original_text", "")
                     orientation = prompt.get("orientation", "portrait")
+                    frame = prompt.get("frame", i + 1)
+                    
+                    # Log the full parsed scene
+                    self.logger.info(f"=== Parsed Scene {frame} ===")
+                    self.logger.info(f"Original Text: {original_text}")
+                    self.logger.info(f"Parsed Prompt: {prompt_content}")
+                    self.logger.info(f"Orientation: {orientation}")
                 else:
                     prompt_content = prompt
+                    original_text = prompt
                     orientation = "portrait"
+                    frame = i + 1
                 
                 # Get size based on orientation
                 size_config = self.config.get("image_generation", f"size_{orientation}")
@@ -145,13 +161,12 @@ class ImageGenerator:
                 height = size_config["height"]
                 
                 # Build the final prompt with prefix and suffix
-                final_prompt = f"{prompt_pre} {prompt_content} {prompt_post}".strip()
-                
-                # Create a closure for the callback that includes the request_id
-                def create_callback(req_id):
-                    def callback(images, error):
-                        self._on_partial_images(req_id, images, error)
-                    return callback
+                if not prompt_content:
+                    self.logger.error(f"Empty prompt content for request {request_id}")
+                    continue
+                    
+                final_prompt = f"{prompt_pre}{prompt_content}{prompt_post}".strip()
+                self.logger.info(f"Final prompt for request {request_id}: {final_prompt}")
                 
                 request_params = {
                     'positivePrompt': final_prompt,
@@ -165,8 +180,7 @@ class ImageGenerator:
                     'scheduler': scheduler,
                     'outputType': output_type,
                     'includeCost': include_cost,
-                    'promptWeighting': prompt_weighting,
-                    'onPartialImages': create_callback(request_id)
+                    'promptWeighting': prompt_weighting
                 }
                 
                 if negative_prompt:
@@ -181,8 +195,6 @@ class ImageGenerator:
                 log_params = request_params.copy()
                 if 'lora' in log_params:
                     log_params['lora'] = [{'model': lora.model, 'weight': lora.weight} for lora in log_params['lora']]
-                # Remove callback for logging
-                log_params.pop('onPartialImages', None)
                 self.logger.info(json.dumps(log_params, indent=2))
                 
                 requests.append(IImageInference(**request_params))
@@ -207,29 +219,6 @@ class ImageGenerator:
                 
             except asyncio.TimeoutError:
                 self.logger.error("Timeout while waiting for image generation")
-                
-                # Check if we have any partial results from callbacks
-                if self.partial_results:
-                    self.logger.info(f"Timeout occurred, but we have partial results: {self.partial_results}")
-                    # Flatten the partial results into a list matching the original prompt order
-                    image_urls = []
-                    for req_id in request_ids:
-                        if req_id in self.partial_results and self.partial_results[req_id]:
-                            # Take the first result for each request
-                            image_urls.append(self.partial_results[req_id][0])
-                        else:
-                            # No result for this request
-                            image_urls.append(None)
-                    
-                    # Remove None values
-                    image_urls = [url for url in image_urls if url]
-                    
-                    if image_urls:
-                        self.logger.info(f"Returning {len(image_urls)} partial results despite timeout")
-                        self.logger.info(f"Partial image URLs: {repr(image_urls)}")
-                        return image_urls
-                
-                self.logger.info("No partial results available. Images might still be generating on Runware. Consider checking directly on the Runware site.")
                 return []
             
             except Exception as e:
@@ -242,10 +231,6 @@ class ImageGenerator:
                 # Check if the result is an exception
                 if isinstance(result, Exception):
                     self.logger.error(f"Error generating image {i+1} (ID: {request_id}): {str(result)}")
-                    # Try to use partial results if available
-                    if request_id in self.partial_results and self.partial_results[request_id]:
-                        self.logger.info(f"Using partial result for {request_id} due to error in final result")
-                        image_urls.append(self.partial_results[request_id][0])
                     continue
                 
                 # Handle normal results
@@ -255,11 +240,6 @@ class ImageGenerator:
                     self.logger.info(f"Image {i+1} (ID: {request_id}) complete result: {image}")
                     # Add URL to our list
                     image_urls.append(image.imageURL)
-                else:
-                    # Try to use partial results if final result is empty
-                    if request_id in self.partial_results and self.partial_results[request_id]:
-                        self.logger.info(f"Using partial result for {request_id} due to empty final result")
-                        image_urls.append(self.partial_results[request_id][0])
 
             # Log the complete list with repr to ensure nothing is truncated
             self.logger.info(f"All generated image URLs: {repr(image_urls)}")

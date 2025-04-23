@@ -6,6 +6,8 @@ from app.utils.config import Config
 from app.utils.logger import Logger
 from enum import Enum
 import httpx
+import jsonschema
+from pathlib import Path
 
 class LLMProvider(Enum):
     LOCAL = "local"
@@ -150,23 +152,27 @@ class ResponseParser:
         return result
 
     @staticmethod
-    def _llm_parse(response_text, current_appearance=None):
-        """Parse the response using LLM"""
+    async def _llm_parse(text: str, current_appearance: str = None) -> dict:
+        """Parse LLM response using the response schema"""
+        logger = Logger()
         try:
+            # Get the full character state
+            from app.core.memory_system import MemorySystem
+            memory_system = MemorySystem()
+            character_state = memory_system.get_character_state()
+            
+            # Get LLM configuration
             config = Config()
             parser_provider = config.get("llm", "parser_provider", "openrouter")
             parser_model = config.get("llm", "parser_model", "mistralai/mistral-large")
-
-            logger = Logger()
-            logger.info(f"Using response parser: {parser_provider}/{parser_model}")
-
+            
             if parser_provider == "openrouter":
                 api_base = config.get("llm", "openrouter_api_base", "https://openrouter.ai/api/v1")
                 api_key = config.get("llm", "openrouter_api_key", "")
                 if not api_key:
                     logger.error("No OpenRouter API key found for response parser")
                     return None
-
+                    
                 headers = {
                     "Authorization": f"Bearer {api_key}",
                     "HTTP-Referer": config.get("llm", "http_referer", "http://localhost:8080"),
@@ -175,83 +181,69 @@ class ResponseParser:
             else:
                 api_base = config.get("llm", "local_api_base", "http://localhost:5000/v1")
                 headers = {"Content-Type": "application/json"}
-
-            # Get system prompt from database
+            
+            # Construct system prompt
             prompt_manager = PromptManager()
             parser_data = prompt_manager.get_prompt("response_parser", PromptType.RESPONSE_PARSER.value)
+            system_prompt = parser_data["content"] if parser_data else ResponseParser._default_prompt()
             
-            if parser_data:
-                system_prompt = parser_data["content"]
-            else:
-                # Fallback to default if not in database
-                system_prompt = """You are a JSON parser that extracts structured information from AI responses.
-Your task is to extract thoughts, mood changes, and appearance updates from the text.
-
-IMPORTANT RULES:
-
-1. Extract thoughts that are explicitly marked with <thought> tags
-2. Infer mood changes from the text, even if not explicitly tagged
-3. Detect appearance changes or descriptions in the text
-4. Return the main text with all special tags removed
-
-For mood detection:
-- Look for emotional language and tone
-- Consider context and previous mood
-- Return null if no clear mood change is detected
-
-For appearance detection:
-- Look for descriptions of physical changes or actions
-- Include both explicit <appearance> tags and implicit descriptions
-- Consider the current appearance context"""
-
-            # Add current appearance if provided
-            if current_appearance:
-                system_prompt += f"\n\nCURRENT APPEARANCE:\n{current_appearance}\n\nUse this as context for detecting appearance changes."
-
+            # Add character state information to system prompt
+            system_prompt += f"\n\nCURRENT CHARACTER STATE:\nappearance: {character_state.get('appearance', '')}\nmood: {character_state.get('mood', '')}\nclothing: {character_state.get('clothing', '')}\nlocation: {character_state.get('location', '')}\n"
+            
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"{response_text}"}
+                {"role": "user", "content": text}
             ]
-
-            # Load the response schema
-            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompts", "response_schema.json")
-            with open(schema_path, "r") as f:
-                response_schema = json.load(f)
-
+            
             endpoint = f"{api_base}/chat/completions"
             payload = {
                 "model": parser_model,
                 "messages": messages,
                 "temperature": 0.2,
-                "max_tokens": 1024,
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": response_schema["schema"]
-                }
+                "max_tokens": 1024
             }
-
+            
             logger.debug(f"Response parser request to {endpoint}: {json.dumps(payload, indent=2)}")
-
-            response = httpx.post(endpoint, json=payload, headers=headers, timeout=30)
-            response.raise_for_status()
-
-            response_data = response.json()
-            parsed_content = response_data["choices"][0]["message"]["content"]
-
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(endpoint, json=payload, headers=headers, timeout=60.0)
+                response.raise_for_status()
+                
+                response_data = response.json()
+                
+                # Check for OpenRouter error response
+                if "error" in response_data:
+                    error_msg = response_data["error"].get("message", "Unknown error")
+                    error_code = response_data["error"].get("code", "Unknown code")
+                    logger.error(f"OpenRouter error: {error_msg} (code: {error_code})")
+                    return None
+                
+                # Handle different response formats
+                if "choices" in response_data:
+                    # OpenAI format
+                    parsed_content = response_data["choices"][0]["message"]["content"]
+                elif "message" in response_data:
+                    # Direct message format
+                    parsed_content = response_data["message"]["content"]
+                else:
+                    # Try to get content directly
+                    parsed_content = response_data.get("content", str(response_data))
+                
+                logger.debug(f"Raw LLM response: {parsed_content}")
+            
             try:
                 result = json.loads(parsed_content)
                 if not isinstance(result, dict):
                     logger.error(f"Invalid response format: {result}")
                     return None
                 
-                logger.info("Successfully parsed response")
                 return result
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response: {str(e)}")
                 return None
-
+                
         except Exception as e:
-            logger.error(f"Error in LLM parsing: {str(e)}")
+            logger.error(f"Error in LLM parsing: {str(e)}", exc_info=True)
             return None
 
     @staticmethod

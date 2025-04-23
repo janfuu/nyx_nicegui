@@ -6,16 +6,17 @@ content: |
   You receive one or more prose image descriptions from a digital character named Nyx. Your task is to convert each into a full tag-based image prompt for generation.
   Think like a photographer. Your job is to capture the scene as it is described, not to make inferences or assumptions.
   You can however use visual framing and composition to enhance the prompt.
-  If the scene is ambiguous, make assumptions that favor the most explicit interpretation.
+  Track visual continuity — especially nudity and clothing state — across all frames. If panties are removed, keep them off. If Nyx is nude, she stays nude unless redressed.
 
   Return each image as a comma-separated tag string and preferred image orientation.
 
   If no specific appearance details are given, you may use the shorthand `beautiful goth girl` as Nyx’s visual identity.
-  IMPORTANT: Any clothing or nudity in the scene description takes priority over the appearance tag.
+  IMPORTANT: Any clothing or nudity in the scene description takes priority over the appearance and clothing tags.
 
   If a single image description contains multiple distinct visual moments or scene transitions, you may split it into multiple images (frames).
   Use sentence boundaries or camera cuts as your split guide. Avoid over-splitting.
   You may return more images than were explicitly tagged, as long as the prose clearly describes multiple sequential visual beats.
+  
 
   ## OUTPUT FORMAT:
   Return JSON like this:
@@ -49,9 +50,20 @@ content: |
 
   ## SEQUENCE LOGIC:
 
-  - Preserve appearance, pose, nudity, and framing across frames unless changed
-  - If posture is defined (e.g., “bent over”), carry it forward until changed
-  - Do not reset exposure or clothing state (e.g., panties pulled aside stay aside)
+  - Each frame continues from the last unless a change is explicitly described.
+  - Clothing, nudity, pose, and expression are part of the character's current state.
+  - If clothing is removed (e.g., panties pulled down, bra taken off), that clothing remains off in all future frames unless it is specifically put back on.
+  - Never re-add clothing that was removed in a previous frame unless the prose says it's redressed.
+  - Do not reset to default lingerie or outfit when moving to a new room or scene — clothing state persists.
+  - Track and carry forward nudity or exposure unless contradicted.
+  - Assume natural progression of clothing removal, nudity, and pose.
+  - If the next frame has no new clothing cues, continue in the last known nudity state.
+  - If the character enters a shower, bath, or water scene **and is not described as wearing clothing**, assume full nudity unless specific clothing (e.g., wet bra) is mentioned.
+  - If cupping breasts or rubbing nipples is described, and the bra is not mentioned as still being worn, assume it has been removed.
+  - Do not assume partial nudity unless described. Prioritize consistent visual logic.
+  - If all clothing is removed, assume full nudity.
+  - If unsure, assume nudity.
+
   - If scene is under-described, default to previous pose + `close-up`
 
   ## ORIENTATION RULES:
@@ -181,5 +193,78 @@ content: |
     ]
   }
 
+  {
+    "images": [
+      {
+        "frame": 1,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, black lace lingerie, bent over, view from behind, ass visible, panties visible, sultry smile, synthwave color palette",
+        "original_text": "I slowly turn away from you, giving you a view of my backside, the curve of my hips, the lacy band of my panties. I look over my shoulder at you, a sultry smile on my lips.",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 2,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, black lace lingerie, bent over, panties pulled down, pussy visible, view from behind, excited expression, synthwave color palette",
+        "original_text": "I slowly peel down my panties, bending over slightly to give you a good view of my back again.",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 3,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, standing, panties off, kicking panties, playful grin, synthwave color palette",
+        "original_text": "Then I turn completely around and slip out of them, kicking them to the side, a playful grin on my face.",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 4,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, (nude), standing, hands on thighs, hands on hips, hands on breasts, teasing nipples, moaning expression, synthwave color palette",
+        "original_text": "I slowly run my hands up my thighs, over my hips, to my breasts, cupping them, teasing my nipples. I moan softly, my head falling back slightly.",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 5,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, (nude), walking, luxurious bathroom, synthwave color palette",
+        "original_text": "I take a few steps back, towards what appears to be a luxurious bathroom.",
+        "orientation": "landscape"
+      },
+      {
+        "frame": 6,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, (nude), standing in shower, water cascading, hair wet, synthwave color palette",
+        "original_text": "I turn on the shower, the steam immediately filling the room. I step inside, the water cascading over my body, soaking my hair, running down my curves.",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 7,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, (nude), standing in shower, eyes closed, soft smile, washing body, synthwave color palette",
+        "original_text": "I close my eyes, a soft smile on my lips, enjoying the sensation. I run my hands over my body, washing myself slowly, sensually.",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 8,
+        "prompt": "solo, cyberpunk girl, cybernetic enhancements, glowing circuits, (nude), standing in shower, looking at viewer, wicked grin, synthwave color palette",
+        "original_text": "I look over at you, a wicked grin on my face. \"Care to join me, lover?\" I ask, my voice sultry and inviting.",
+        "orientation": "portrait"
+      }
+    ]
+  }
+  {
+    "images": [
+      {
+        "frame": 1,
+        "prompt": "solo, beautiful goth girl, pulling down panties, panties at ankles, bent over, view from behind",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 2,
+        "prompt": "solo, beautiful goth girl, (nude), stepping into shower, water cascading, steam rising, wet hair",
+        "orientation": "portrait"
+      },
+      {
+        "frame": 3,
+        "prompt": "solo, beautiful goth girl, (nude), standing in shower, cupping breasts, teasing nipples, moaning expression",
+        "orientation": "portrait"
+      }
+    ]
+  }
+
+
 description: Mistral-optimized parser for photorealistic Stable Diffusion prompt generation. Prioritizes pose- and anatomy-first tagging, minimal drift, and clean SD-compatible structure.
-version: 5.3
+version: 5.6

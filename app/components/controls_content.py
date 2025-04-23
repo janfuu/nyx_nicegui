@@ -15,6 +15,7 @@ import numpy as np
 import uuid  # Add this import
 from app.services.qdrant_client import QdrantImageStore
 from app.main import get_embedder
+from app.core.response_parser import ResponseParser
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
@@ -479,6 +480,7 @@ def test_image_generator_parser():
     """Test the image generator and scene parser together"""
     # Initialize components
     memory_system = MemorySystem()
+    response_parser = ResponseParser()
     image_scene_parser = ImageSceneParser()
     image_generator = ImageGenerator()
     lightbox = Lightbox()
@@ -504,9 +506,9 @@ def test_image_generator_parser():
                 ui.label('Parsed Scenes').classes('text-h6 q-mt-md')
                 for scene in scenes:
                     with ui.card().classes('q-mb-sm q-pa-sm bg-dark'):
-                        # Display the scene content, handling different formats
-                        scene_prompt = scene.get('prompt', scene) if isinstance(scene, dict) else scene
-                        ui.label(scene_prompt).classes('text-body2')
+                        # Display the original text content
+                        original_text = scene.get('original_text', '') if isinstance(scene, dict) else scene
+                        ui.label(original_text).classes('text-body2')
                 
                 ui.separator()
                 
@@ -518,7 +520,7 @@ def test_image_generator_parser():
                     containers = []
                     lightbox = Lightbox()
                     
-                    # First create all UI containers
+                    # First create all UI containers based on parsed scenes
                     for scene in scenes:
                         try:
                             # Extract scene prompt using the format from image_scene_parser
@@ -533,7 +535,9 @@ def test_image_generator_parser():
                                     img.visible = False
                                 
                                 with ui.row().classes('items-center justify-between q-mt-xs'):
-                                    desc = scene_prompt[:30] + "..." if len(scene_prompt) > 30 else scene_prompt
+                                    # Show the original text in the description
+                                    original_text = scene.get('original_text', '') if isinstance(scene, dict) else scene
+                                    desc = original_text[:30] + "..." if len(original_text) > 30 else original_text
                                     ui.label(desc).classes('text-caption text-grey-5 ellipsis')
                                 
                                 tasks.append({
@@ -583,10 +587,7 @@ def test_image_generator_parser():
                                 
                                 # Get original and parsed prompts
                                 scene_data = task['scene']
-                                original_prompt = ""
-                                if i < len(original_image_tags):
-                                    original_prompt = original_image_tags[i]["content"]
-                                
+                                original_prompt = scene_data.get('original_text', '') if isinstance(scene_data, dict) else str(scene_data)
                                 parsed_prompt = scene_data.get('prompt', scene_data) if isinstance(scene_data, dict) else str(scene_data)
                                 
                                 # Add to lightbox with ID and prompts
@@ -639,7 +640,7 @@ def test_image_generator_parser():
                     with status_card:
                         with ui.row().classes('items-center gap-4'):
                             ui.spinner('dots').classes('text-primary')
-                            ui.label('Processing visual scenes...').classes('text-lg')
+                            ui.label('Processing response...').classes('text-lg')
                 
                 # Get current appearance from memory system
                 current_appearance = memory_system.get_recent_appearances(1)
@@ -648,15 +649,13 @@ def test_image_generator_parser():
                 current_location = memory_system.get_recent_locations(1)
                 current_location_text = current_location[0]["description"] if current_location else None
                 
-                # Extract image tags from input
-                import re
-                image_pattern = r'<image>(.*?)</image>'
-                image_tags = re.findall(image_pattern, test_input.value, re.DOTALL)
+                # First parse the response
+                parsed_response = response_parser.parse_response(test_input.value)
                 
-                if not image_tags:
+                if not parsed_response or 'images' not in parsed_response or not parsed_response['images']:
                     results_container.clear()
                     with results_container:
-                        ui.label("No <image> tags found in the input").classes('text-gray-400')
+                        ui.label("No image tags found in the input").classes('text-gray-400')
                     return
                 
                 # Format image contents with context and sequence
@@ -664,7 +663,7 @@ def test_image_generator_parser():
                     "appearance": current_appearance_text,
                     "mood": current_mood,
                     "location": current_location_text,
-                    "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
+                    "images": [{"content": content, "sequence": i+1} for i, content in enumerate(parsed_response['images'])]
                 }
                 
                 # Store image_tags as an attribute to access in generate_images
@@ -760,53 +759,6 @@ def content() -> None:
             ui.button('Initialize Memory System', on_click=initialize_memory_system).props('color="primary"')
             ui.button('Recover Memory System', on_click=recover_memory_system).props('color="warning"')
             ui.button('View Memory Data', on_click=display_memory_data).props('color="secondary"')
-
-    ui.separator()
-    
-    # Prompt File Management Section
-    with ui.card().classes('w-full'):
-        ui.markdown("**Prompt File Management**")
-        
-        with ui.column().classes('gap-1 w-full'):
-            # File selection dropdown
-            prompt_files = [f for f in Path('prompts').glob('*.yaml') if f.is_file()]
-            if not prompt_files:
-                ui.notify("No prompt files found in the prompts directory", color="warning")
-                return
-                
-            file_select = ui.select(
-                [str(file.name) for file in prompt_files],
-                value=str(prompt_files[0].name) if prompt_files else None,
-                label="Select Prompt File"
-            ).classes('w-full')
-            
-            # Preview area
-            preview_area = ui.scroll_area().classes('h-96 w-full font-mono')
-            
-            # Load and preview button
-            def load_and_preview():
-                if not file_select.value:
-                    ui.notify("No file selected", color="negative")
-                    return
-                
-                try:
-                    file_path = Path('prompts') / file_select.value
-                    if not file_path.exists():
-                        ui.notify(f"File {file_select.value} not found", color="negative")
-                        return
-                        
-                    with open(file_path, 'r') as f:
-                        content = f.read()
-                    
-                    with preview_area:
-                        preview_area.clear()
-                        ui.markdown(f"```yaml\n{content}\n```")
-                    
-                    ui.notify(f"Loaded {file_select.value}", color="positive")
-                except Exception as e:
-                    ui.notify(f"Error loading file: {str(e)}", color="negative")
-            
-            ui.button('View File', on_click=load_and_preview).props('color="primary"')
 
     ui.separator()
     

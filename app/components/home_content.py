@@ -7,6 +7,7 @@ import httpx
 import json
 from typing import List
 import re
+from .lightbox import Lightbox
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
@@ -264,11 +265,11 @@ def display_message(chat_box, response, memory_system):
     # Create a message container for text and related images
     with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
         # Clean response text by removing image tags before displaying
-        cleaned_text = clean_response_text(response['main_text'])
+        cleaned_text = clean_response_text(response['text'])
         ui.markdown(cleaned_text).classes('text-white')
         
         # Add indicator for hidden content if present
-        if has_hidden_content(response['main_text']):
+        if has_hidden_content(response['text']):
             with ui.row().classes('justify-end items-center mt-1'):
                 ui.icon('lock', color='grey').classes('text-xs')
         
@@ -295,6 +296,13 @@ def display_message(chat_box, response, memory_system):
                                 with ui.row().classes('items-center justify-between q-mt-xs'):
                                     desc = image_data["description"][:30] + "..." if len(image_data["description"]) > 30 else image_data["description"]
                                     ui.label(desc).classes('text-caption text-grey-5 ellipsis')
+                                    
+                                    # Add orientation and frame info if available
+                                    orientation = image_data.get("orientation", "")
+                                    frame = image_data.get("frame", None)
+                                    if orientation or frame:
+                                        frame_text = f"[Frame {frame} | {orientation}]" if frame else f"[{orientation}]"
+                                        ui.label(frame_text).classes('text-caption text-grey-5')
                                 
                                 tasks.append({
                                     'scene': image_data["description"],
@@ -321,14 +329,9 @@ def display_message(chat_box, response, memory_system):
                         import uuid
                         image_uuid = str(uuid.uuid4())
                         
-                        # Get the original prompt from the image tags in the raw response text
-                        image_tags = re.findall(r'<image>(.*?)</image>', response['main_text'], re.DOTALL)
-                        original_prompt = ""
-                        if i < len(image_tags):
-                            original_prompt = image_tags[i].strip()
-                        else:
-                            # Fallback to the description if image tags can't be found
-                            original_prompt = current_image.get("description", "")
+                        # Get the original and parsed prompts from the image data
+                        original_prompt = current_image.get("original_text", current_image.get("description", ""))
+                        parsed_prompt = current_image.get("prompt", current_image.get("description", ""))
                             
                         # Add to lightbox with prompts
                         lightbox.add_image(
@@ -336,7 +339,7 @@ def display_message(chat_box, response, memory_system):
                             orig_url=current_image["url"],
                             image_id=image_uuid,
                             original_prompt=original_prompt,
-                            parsed_prompt=current_image.get("parsed_prompt", current_image.get("description", ""))
+                            parsed_prompt=parsed_prompt
                         )
                         
                         # Set up click handler - update to use the lightbox
@@ -733,7 +736,8 @@ def content() -> None:
                                     pass  # Ignore if spinner already removed
                                 with chat_box:
                                     ui.label("Sorry, I'm taking too long to respond. Please try again.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
-                                ui.notify("Request timed out", color="negative")
+                                # Move notification to main thread
+                                ui.timer(0.1, lambda: ui.notify("Request timed out", color="negative"), once=True)
                             except Exception as e:
                                 # Handle errors
                                 try:
@@ -742,7 +746,8 @@ def content() -> None:
                                     pass  # Ignore if spinner already removed
                                 with chat_box:
                                     ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
-                                ui.notify(f"Error processing message: {str(e)}", color="negative")
+                                # Move notification to main thread
+                                ui.timer(0.1, lambda: ui.notify(f"Error processing message: {str(e)}", color="negative"), once=True)
                                     
                             finally:
                                 # Re-enable the send button

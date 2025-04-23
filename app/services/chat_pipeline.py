@@ -22,14 +22,6 @@ class ChatPipeline:
         self.config = Config()
         self.logger = Logger()
     
-    @staticmethod
-    def _extract_image_tags(text: str) -> list[dict]:
-        """Extract the content of all <image> tags from the text with sequence numbers"""
-        import re
-        pattern = r'<image>(.*?)</image>'
-        matches = re.findall(pattern, text, re.DOTALL)
-        return [{"content": match.strip(), "sequence": i+1} for i, match in enumerate(matches)]
-
     async def process_message(self, user_message):
         """Process a user message and generate a response"""
         self.logger.info(f"Processing message: {user_message[:50]}...")
@@ -104,7 +96,7 @@ class ChatPipeline:
         # Step 4: Parse response for tags
         self.logger.debug("Step 4: Parsing response for special tags")
         try:
-            parsed_content = ResponseParser._llm_parse(
+            parsed_content = await ResponseParser._llm_parse(
                 llm_response,
                 current_appearance=current_appearance[0]["description"] if current_appearance else None
             )
@@ -231,16 +223,17 @@ class ChatPipeline:
                                 image_uuid = f"img_{int(time.time())}_{i}"
                             
                             # Get the original content from the corresponding input image
-                            original_content = ""
+                            original_prompt = ""
                             if i < len(parsed_content["images"]):
-                                original_content = parsed_content["images"][i]
+                                original_prompt = parsed_content["images"][i]
                             
                             generated_images.append({
                                 "url": image_url,
                                 "description": scene_contents[i].get("content", scene_contents[i].get("prompt", "Generated image")),
                                 "id": image_uuid,
                                 "sequence": sequence,
-                                "original_text": scene_contents[i].get("original_text", "")
+                                "original_prompt": original_prompt,
+                                "parsed_prompt": scene_contents[i].get("prompt", "")
                             })
                             
                             scene_data = scene_contents[i].copy() if isinstance(scene_contents[i], dict) else {"prompt": scene_contents[i]}

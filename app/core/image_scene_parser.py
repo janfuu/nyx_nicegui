@@ -6,6 +6,7 @@ from app.models.prompt_models import PromptManager, PromptType
 from app.utils.config import Config
 from app.utils.logger import Logger
 from enum import Enum
+from typing import List, Dict
 
 class LLMProvider(Enum):
     LOCAL = "local"
@@ -32,8 +33,8 @@ class ImageSceneParser:
             logger.info(f"  Location: {character_state.get('location', 'None')[:50]}...")
 
             config = Config()
-            parser_provider = config.get("llm", "parser_provider", "openrouter")
-            parser_model = config.get("llm", "parser_model", "mistralai/mistral-large")
+            parser_provider = config.get("llm", "image_parser_provider", "openrouter")
+            parser_model = config.get("llm", "image_parser_model", "mistralai/mistral-small-3.1-24b-instruct")
 
             logger.info(f"Using image parser: {parser_provider}/{parser_model}")
 
@@ -120,45 +121,7 @@ class ImageSceneParser:
                 "model": parser_model,
                 "messages": messages,
                 "temperature": 0.2,
-                "max_tokens": 1024,
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "type": "object",
-                        "properties": {
-                            "images": {
-                                "type": "array",
-                                "description": "List of parsed image frames",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "prompt": {
-                                            "type": "string",
-                                            "description": "Comma-separated tag string for the image"
-                                        },
-                                        "original_text": {
-                                            "type": "string",
-                                            "description": "The original prose or source description"
-                                        },
-                                        "orientation": {
-                                            "type": "string",
-                                            "enum": ["square", "portrait", "landscape"],
-                                            "description": "Image orientation for framing"
-                                        },
-                                        "frame": {
-                                            "type": "integer",
-                                            "description": "The order or sequence number of this image"
-                                        }
-                                    },
-                                    "required": ["prompt", "original_text", "orientation", "frame"],
-                                    "additionalProperties": false
-                                }
-                            }
-                        },
-                        "required": ["images"],
-                        "additionalProperties": false
-                    }
-                }
+                "max_tokens": 1024
             }
 
             logger.debug(f"Image parser request to {endpoint}: {json.dumps(payload, indent=2)}")
@@ -167,20 +130,50 @@ class ImageSceneParser:
             async with httpx.AsyncClient() as client:
                 # Use a longer timeout for LLM requests (60 seconds)
                 response = await client.post(endpoint, json=payload, headers=headers, timeout=60.0)
-                response.raise_for_status()
-
+                
+                if response.status_code != 200:
+                    error_data = response.json()
+                    error_msg = error_data.get("error", {}).get("message", "Unknown error")
+                    error_code = error_data.get("error", {}).get("code", response.status_code)
+                    logger.error(f"OpenRouter error: {error_msg} (code: {error_code})")
+                    logger.error(f"Error details: {error_data}")
+                    return None
+                
                 response_data = response.json()
-                parsed_content = response_data["choices"][0]["message"]["content"]
+                
+                # Handle different response formats
+                if "choices" in response_data:
+                    # OpenAI format
+                    parsed_content = response_data["choices"][0]["message"]["content"]
+                elif "message" in response_data:
+                    # Direct message format
+                    parsed_content = response_data["message"]["content"]
+                else:
+                    # Try to get content directly
+                    parsed_content = response_data.get("content", str(response_data))
             
             # Log the raw LLM response
-            print("=== RAW LLM RESPONSE ===")
-            print(parsed_content)
-            print("=== END RAW LLM RESPONSE ===")
+            logger.debug(f"Raw LLM response: {parsed_content}")
+
+            # Check if we got a valid response
+            if not parsed_content:
+                logger.error("Empty response from LLM")
+                return None
+
+            # Parse the response to ensure it's properly terminated
+            parsed_content = ImageSceneParser._parse_response(parsed_content)
 
             try:
+                # Try to parse the response
                 result = json.loads(parsed_content)
-                if not isinstance(result, dict) or "images" not in result:
-                    logger.error(f"Invalid response format: {result}")
+                
+                # Validate the response structure
+                if not isinstance(result, dict):
+                    logger.error(f"Response is not a dictionary: {result}")
+                    return None
+                    
+                if "images" not in result:
+                    logger.error(f"Response missing 'images' key: {result}")
                     return None
                 
                 images = result["images"]
@@ -188,11 +181,21 @@ class ImageSceneParser:
                     logger.error(f"Images is not a list: {images}")
                     return None
                 
+                # Validate each image entry
+                for i, image in enumerate(images):
+                    if not isinstance(image, dict):
+                        logger.error(f"Image {i} is not a dictionary: {image}")
+                        return None
+                    if "prompt" not in image:
+                        logger.error(f"Image {i} missing 'prompt' key: {image}")
+                        return None
+                
                 # Return the images exactly as received from the LLM
                 logger.info("Successfully parsed image scenes")
                 return images
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response: {str(e)}")
+                logger.error(f"Raw content that failed to parse: {parsed_content}")
                 return None
 
         except Exception as e:
@@ -235,3 +238,25 @@ FORMAT YOUR RESPONSE AS THIS JSON:
 The "orientation" field should be either "portrait" (default, for vertical images) or "landscape" (for horizontal images) based on what's most appropriate for the scene.
 
 DO NOT include HTML tags, markdown formatting, or explanations. Return ONLY the JSON object."""
+
+    @staticmethod
+    def _parse_response(response: str) -> str:
+        """Parse the response from the LLM to extract the JSON content."""
+        # Remove any markdown code block syntax
+        response = response.strip()
+        if response.startswith("```json"):
+            response = response[7:]
+        elif response.startswith("```"):
+            response = response[3:]
+        if response.endswith("```"):
+            response = response[:-3]
+        response = response.strip()
+        
+        # Ensure the response is properly terminated
+        if not response.endswith("}"):
+            # Find the last complete object
+            last_brace = response.rfind("}")
+            if last_brace != -1:
+                response = response[:last_brace + 1]
+        
+        return response
