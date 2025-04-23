@@ -78,6 +78,9 @@ class ResponseParser:
     @staticmethod
     def parse_response(response_text, current_appearance=None):
         """
+        DEPRECATED: This regex-based parser is no longer used.
+        Please use _llm_parse instead for better tag handling and context awareness.
+        
         Parse the response text to extract special tags for mood, thoughts, and appearance changes
         
         Args:
@@ -85,6 +88,7 @@ class ResponseParser:
             current_appearance: The current appearance description for context (unused in regex version)
         """
         logger = Logger()
+        logger.warning("DEPRECATED: Using regex-based parse_response. Please use _llm_parse instead.")
         logger.info("Starting to parse response")
         logger.debug(f"Original response text: {response_text}")
         
@@ -103,53 +107,111 @@ class ResponseParser:
             "images": []
         }
         
-        # Extract thoughts using regex
-        thought_pattern = r'<thought>(.*?)</thought>'
+        # Extract thoughts using regex - handle both formats
+        thought_pattern = r'(?:<thought>|\[\[thought\]\])(.*?)(?:</thought>|\[\[/thought\]\])'
         thoughts = re.findall(thought_pattern, response_text, re.DOTALL)
         if thoughts:
             result["thoughts"] = [thought.strip() for thought in thoughts]
             logger.info(f"Found {len(thoughts)} thoughts")
         
-        # Extract mood using regex
-        mood_pattern = r'<mood>(.*?)</mood>'
+        # Extract mood using regex - handle both formats
+        mood_pattern = r'(?:<mood>|\[\[mood\]\])(.*?)(?:</mood>|\[\[/mood\]\])'
         moods = re.findall(mood_pattern, response_text, re.DOTALL)
         if moods:
             result["mood"] = moods[-1].strip()  # Use the last mood tag if multiple exist
             logger.info(f"Found mood update: {result['mood']}")
         
-        # Extract appearance changes using regex
-        appearance_pattern = r'<appearance>(.*?)</appearance>'
+        # Extract appearance changes using regex - handle both formats
+        appearance_pattern = r'(?:<appearance>|\[\[appearance\]\])(.*?)(?:</appearance>|\[\[/appearance\]\])'
         appearance_changes = re.findall(appearance_pattern, response_text, re.DOTALL)
         if appearance_changes:
             result["appearance"] = [change.strip() for change in appearance_changes]
             logger.info(f"Found {len(appearance_changes)} appearance changes")
         
-        # Extract clothing changes using regex
-        clothing_pattern = r'<clothing>(.*?)</clothing>'
+        # Extract clothing changes using regex - handle both formats
+        clothing_pattern = r'(?:<clothing>|\[\[clothing\]\])(.*?)(?:</clothing>|\[\[/clothing\]\])'
         clothing_changes = re.findall(clothing_pattern, response_text, re.DOTALL)
         if clothing_changes:
             result["clothing"] = [change.strip() for change in clothing_changes]
             logger.info(f"Found {len(clothing_changes)} clothing changes")
         
-        # Extract location changes using regex
-        location_pattern = r'<location>(.*?)</location>'
+        # Extract location changes using regex - handle both formats
+        location_pattern = r'(?:<location>|\[\[location\]\])(.*?)(?:</location>|\[\[/location\]\])'
         locations = re.findall(location_pattern, response_text, re.DOTALL)
         if locations:
             result["location"] = locations[-1].strip()  # Use the last location tag if multiple exist
             logger.info(f"Found location update: {result['location']}")
         
-        # Extract images using regex
-        image_pattern = r'<image>(.*?)</image>'
+        # Extract images using regex - handle both formats
+        image_pattern = r'(?:<image>|\[\[image\]\])(.*?)(?:</image>|\[\[/image\]\])'
         images = re.findall(image_pattern, response_text, re.DOTALL)
         if images:
             result["images"] = [image.strip() for image in images]
             logger.info(f"Found {len(images)} images")
         
-        # Clean the main text by removing all tags
-        result["main_text"] = re.sub(r'<(thought|mood|appearance|clothing|location|image)>(.*?)</\1>', '', response_text, flags=re.DOTALL).strip()
+        # Clean the main text by removing all tags - handle both formats
+        result["main_text"] = re.sub(
+            r'(?:<(thought|mood|appearance|clothing|location|image)>|\[\[\1\]\])(.*?)(?:</\1>|\[\[/\1\]\])',
+            '',
+            response_text,
+            flags=re.DOTALL
+        ).strip()
         
         logger.info(f"Parsing complete. Found: {len(result['thoughts'])} thoughts, Mood update: {'Yes' if result['mood'] else 'No'}")
         return result
+
+    @staticmethod
+    def _clean_json_response(response: str) -> str:
+        """Clean up a JSON response to ensure it's properly formatted"""
+        # Remove any markdown code block syntax
+        response = response.strip()
+        if response.startswith("```json"):
+            response = response[7:]
+        elif response.startswith("```"):
+            response = response[3:]
+        if response.endswith("```"):
+            response = response[:-3]
+        response = response.strip()
+        
+        # First try to parse the response as-is
+        try:
+            json.loads(response)
+            return response  # If it's already valid JSON, return it unchanged
+        except json.JSONDecodeError:
+            pass  # Continue with cleaning if parsing fails
+        
+        # Ensure the response is properly terminated
+        if not response.endswith("}"):
+            # Find the last complete object
+            last_brace = response.rfind("}")
+            if last_brace != -1:
+                response = response[:last_brace + 1]
+        
+        # Fix missing commas between properties
+        # Only fix if there's no comma and the next character is a quote
+        response = re.sub(r'("[^"]*"\s*:\s*(?:"[^"]*"|\d+|true|false|null))\s*(?="[^"]*"|})', r'\1,', response)
+        
+        # Fix missing quotes around property names
+        # Only fix if the property name isn't already quoted
+        response = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:\s*)', r'\1"\2"\3', response)
+        
+        # Fix missing quotes around string values
+        # Only fix if the value isn't already quoted and isn't a number/boolean/null
+        response = re.sub(r'("[^"]*"\s*:\s*)([^",}\]]+)([,\]}])', r'\1"\2"\3', response)
+        
+        # Fix trailing commas
+        response = re.sub(r',(\s*[}\]])', r'\1', response)
+        
+        # Fix multiple commas
+        response = re.sub(r',\s*,', ',', response)
+        
+        # Fix missing commas between array elements
+        # Only fix if there's no comma and the next character is a quote or number
+        response = re.sub(r'("[^"]*"|\d+|true|false|null)\s*(?="[^"]*"|\d+|true|false|null|[\]])', r'\1,', response)
+        
+        # Don't try to fix escaped quotes - this was causing problems with valid JSON
+        
+        return response
 
     @staticmethod
     async def _llm_parse(text: str, current_appearance: str = None) -> dict:
@@ -200,7 +262,20 @@ class ResponseParser:
                 "model": parser_model,
                 "messages": messages,
                 "temperature": 0.2,
-                "max_tokens": 1024
+                "max_tokens": 8192,
+                "response_format": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "main_text": {"type": "string"},
+                            "thoughts": {"type": "array", "items": {"type": "string"}},
+                            "mood": {"type": ["string", "null"]},
+                            "appearance": {"type": "array", "items": {"type": "string"}},
+                            "images": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["main_text", "thoughts", "mood", "appearance", "images"]
+                    }
+                }
             }
             
             logger.debug(f"Response parser request to {endpoint}: {json.dumps(payload, indent=2)}")
@@ -229,17 +304,84 @@ class ResponseParser:
                     # Try to get content directly
                     parsed_content = response_data.get("content", str(response_data))
                 
+                # Log the response length and content for debugging
+                logger.debug(f"Raw LLM response length: {len(parsed_content)}")
                 logger.debug(f"Raw LLM response: {parsed_content}")
-            
+                
+                # Check for truncation indicators
+                if parsed_content.endswith('...') or not parsed_content.strip().endswith('}'):
+                    logger.warning("Response appears to be truncated")
+                    # Try to complete the JSON if it's truncated
+                    if not parsed_content.strip().endswith('}'):
+                        parsed_content = parsed_content.strip() + '}'
+                
             try:
-                result = json.loads(parsed_content)
+                # Clean up the response before parsing
+                cleaned_content = ResponseParser._clean_json_response(parsed_content)
+                
+                # Log the cleaned content length
+                logger.debug(f"Cleaned response length: {len(cleaned_content)}")
+                
+                # Try to parse the JSON with error recovery
+                result = None
+                try:
+                    result = json.loads(cleaned_content)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Initial JSON parse failed, attempting to fix: {str(e)}")
+                    logger.debug(f"Error position: line {e.lineno}, column {e.colno}, char {e.pos}")
+                    logger.debug(f"Context around error: {cleaned_content[max(0, e.pos-50):min(len(cleaned_content), e.pos+50)]}")
+                    
+                    # Try to extract just the JSON object if it's wrapped in text
+                    json_match = re.search(r'\{.*\}', cleaned_content, re.DOTALL)
+                    if json_match:
+                        cleaned_content = json_match.group(0)
+                    
+                    # Try to fix common JSON issues
+                    # 1. Fix missing commas between properties
+                    cleaned_content = re.sub(r'("[^"]*"\s*:\s*(?:"[^"]*"|\d+|true|false|null))\s*(?="[^"]*"|})', r'\1,', cleaned_content)
+                    # 2. Fix missing quotes around property names
+                    cleaned_content = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:\s*)', r'\1"\2"\3', cleaned_content)
+                    # 3. Fix missing quotes around string values
+                    cleaned_content = re.sub(r'("[^"]*"\s*:\s*)([^",}\]]+)([,\]}])', r'\1"\2"\3', cleaned_content)
+                    # 4. Fix trailing commas
+                    cleaned_content = re.sub(r',(\s*[}\]])', r'\1', cleaned_content)
+                    # 5. Fix multiple commas
+                    cleaned_content = re.sub(r',\s*,', ',', cleaned_content)
+                    # 6. Fix missing commas between array elements
+                    cleaned_content = re.sub(r'("[^"]*"|\d+|true|false|null)\s*(?="[^"]*"|\d+|true|false|null|[\]])', r'\1,', cleaned_content)
+                    # 7. Fix unescaped quotes in strings
+                    cleaned_content = re.sub(r'([^\\])"([^"]*?)([^\\])"', r'\1"\2\\\3"', cleaned_content)
+                    
+                    try:
+                        result = json.loads(cleaned_content)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse JSON after fixes: {str(e)}")
+                        logger.error(f"Content that failed to parse: {cleaned_content}")
+                        # Try one last time with a more aggressive cleanup
+                        try:
+                            # Remove any non-JSON content before the first { and after the last }
+                            start = cleaned_content.find('{')
+                            end = cleaned_content.rfind('}') + 1
+                            if start != -1 and end != 0:
+                                cleaned_content = cleaned_content[start:end]
+                                result = json.loads(cleaned_content)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Final JSON parse attempt failed: {str(e)}")
+                            return None
+                
                 if not isinstance(result, dict):
                     logger.error(f"Invalid response format: {result}")
                     return None
                 
+                # Ensure required fields exist
+                required_fields = ["main_text", "thoughts", "mood", "appearance", "images"]
+                for field in required_fields:
+                    if field not in result:
+                        result[field] = [] if field in ["thoughts", "appearance", "images"] else None
+                
                 return result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error parsing JSON response: {str(e)}")
                 return None
                 
         except Exception as e:

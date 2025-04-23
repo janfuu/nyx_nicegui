@@ -30,8 +30,11 @@ def content() -> None:
                     mood_display = ui.markdown(current_mood).classes('text-lg')
                     
                     def update_mood():
+                        # Store in memory system
                         memory_system.update_mood(mood_input.value)
-                        mood_display.content = mood_input.value
+                        # Get fresh value from memory system
+                        current_mood = memory_system.get_current_mood()
+                        mood_display.content = current_mood
                         ui.notify('Mood updated successfully!', color='positive')
                     
                     mood_input = ui.input(placeholder='Enter new mood...').classes('flex-1')
@@ -50,9 +53,10 @@ def content() -> None:
                     def update_appearance():
                         # Store in memory system
                         memory_system.add_appearance(appearance_input.value)
-                        
-                        # Update display
-                        appearance_display.content = appearance_input.value
+                        # Get fresh value from memory system
+                        current_appearances = memory_system.get_recent_appearances(1)
+                        if current_appearances:
+                            appearance_display.content = current_appearances[0]["description"]
                         ui.notify('Appearance updated successfully!', color='positive')
                     
                     # Add refresh button to reload
@@ -84,9 +88,10 @@ def content() -> None:
                     def update_clothing():
                         # Store in memory system
                         memory_system.add_clothing(clothing_input.value)
-                        
-                        # Update display
-                        clothing_display.content = clothing_input.value
+                        # Get fresh value from memory system
+                        current_clothing = memory_system.get_recent_clothing(1)
+                        if current_clothing:
+                            clothing_display.content = current_clothing[0]["description"]
                         ui.notify('Clothing updated successfully!', color='positive')
                     
                     # Add refresh button to reload
@@ -122,7 +127,10 @@ def content() -> None:
                         memory_system.add_location(location_input.value)
                         # Also update the current location
                         memory_system.update_location(location_input.value)
-                        location_display.content = location_input.value
+                        # Get fresh value from memory system
+                        current_location = memory_system.get_recent_locations(1)
+                        if current_location:
+                            location_display.content = current_location[0]["description"]
                         ui.notify('Location updated successfully!', color='positive')
                     
                     location_input = ui.input(placeholder='Enter new location...').classes('flex-1')

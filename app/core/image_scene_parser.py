@@ -121,7 +121,27 @@ class ImageSceneParser:
                 "model": parser_model,
                 "messages": messages,
                 "temperature": 0.2,
-                "max_tokens": 1024
+                "max_tokens": 8192,
+                "response_format": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "images": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "prompt": {"type": "string"},
+                                        "sequence": {"type": "integer"},
+                                        "orientation": {"type": "string", "enum": ["portrait", "landscape"]}
+                                    },
+                                    "required": ["prompt", "sequence", "orientation"]
+                                }
+                            }
+                        },
+                        "required": ["images"]
+                    }
+                }
             }
 
             logger.debug(f"Image parser request to {endpoint}: {json.dumps(payload, indent=2)}")

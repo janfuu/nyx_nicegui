@@ -280,6 +280,7 @@ def display_message(chat_box, response, memory_system):
                 # Create a list to store image generation tasks
                 tasks = []
                 containers = []
+                lightbox = Lightbox()  # Initialize lightbox here
                 
                 # First create all UI containers
                 for image_data in response["images"]:
@@ -330,8 +331,9 @@ def display_message(chat_box, response, memory_system):
                         image_uuid = str(uuid.uuid4())
                         
                         # Get the original and parsed prompts from the image data
-                        original_prompt = current_image.get("original_text", current_image.get("description", ""))
-                        parsed_prompt = current_image.get("prompt", current_image.get("description", ""))
+                        scene_data = current_image.get("scene_data", {})
+                        original_prompt = scene_data.get("original_text", current_image.get("description", ""))
+                        parsed_prompt = scene_data.get("prompt", current_image.get("description", ""))
                             
                         # Add to lightbox with prompts
                         lightbox.add_image(
@@ -528,18 +530,18 @@ def content() -> None:
                             try:
                                 if test_mode:
                                     # In test mode, create a mock response that echoes the input
-                                    # Extract all types of tags
-                                    image_tags = re.findall(r'<image>(.*?)</image>', current_message, re.DOTALL)
-                                    thought_tags = re.findall(r'<thought>(.*?)</thought>', current_message, re.DOTALL)
-                                    mood_tags = re.findall(r'<mood>(.*?)</mood>', current_message, re.DOTALL)
-                                    appearance_tags = re.findall(r'<appearance>(.*?)</appearance>', current_message, re.DOTALL)
-                                    location_tags = re.findall(r'<location>(.*?)</location>', current_message, re.DOTALL)
-                                    clothing_tags = re.findall(r'<clothing>(.*?)</clothing>', current_message, re.DOTALL)
+                                    # Extract all types of tags - handle both formats
+                                    image_tags = re.findall(r'(?:<image>|\[\[image\]\])(.*?)(?:</image>|\[\[/image\]\])', current_message, re.DOTALL)
+                                    thought_tags = re.findall(r'(?:<thought>|\[\[thought\]\])(.*?)(?:</thought>|\[\[/thought\]\])', current_message, re.DOTALL)
+                                    mood_tags = re.findall(r'(?:<mood>|\[\[mood\]\])(.*?)(?:</mood>|\[\[/mood\]\])', current_message, re.DOTALL)
+                                    appearance_tags = re.findall(r'(?:<appearance>|\[\[appearance\]\])(.*?)(?:</appearance>|\[\[/appearance\]\])', current_message, re.DOTALL)
+                                    location_tags = re.findall(r'(?:<location>|\[\[location\]\])(.*?)(?:</location>|\[\[/location\]\])', current_message, re.DOTALL)
+                                    clothing_tags = re.findall(r'(?:<clothing>|\[\[clothing\]\])(.*?)(?:</clothing>|\[\[/clothing\]\])', current_message, re.DOTALL)
                                     
                                     # Also look for secret tags that will be hidden but indicated with a lock icon
-                                    secret_tags = re.findall(r'<secret>(.*?)</secret>', current_message, re.DOTALL)
-                                    desire_tags = re.findall(r'<desire>(.*?)</desire>', current_message, re.DOTALL)
-                                    internal_tags = re.findall(r'<internal>(.*?)</internal>', current_message, re.DOTALL)
+                                    secret_tags = re.findall(r'(?:<secret>|\[\[secret\]\])(.*?)(?:</secret>|\[\[/secret\]\])', current_message, re.DOTALL)
+                                    desire_tags = re.findall(r'(?:<desire>|\[\[desire\]\])(.*?)(?:</desire>|\[\[/desire\]\])', current_message, re.DOTALL)
+                                    internal_tags = re.findall(r'(?:<internal>|\[\[internal\]\])(.*?)(?:</internal>|\[\[/internal\]\])', current_message, re.DOTALL)
                                     
                                     # Create a mock response with only the tags that were included
                                     mock_response = {
@@ -550,73 +552,74 @@ def content() -> None:
                                     # Only include thoughts if thought tags were found
                                     if thought_tags:
                                         mock_response['thoughts'] = thought_tags
-                                        # Store thoughts in test mode too
-                                        for thought in thought_tags:
-                                            memory_system.add_thought(thought)
                                     
                                     # Only include mood if mood tags were found
                                     if mood_tags:
                                         mock_response['mood'] = mood_tags[0]  # Only use the first mood tag
-                                        # Store mood in test mode too
-                                        memory_system.update_mood(mood_tags[0])
                                     
                                     # Only include appearance if appearance tags were found
                                     if appearance_tags:
                                         mock_response['appearance'] = appearance_tags
-                                        # Store appearance changes in test mode too
-                                        for appearance in appearance_tags:
-                                            memory_system.add_appearance(appearance)
-                                            
-                                        # Update the display with most recent appearance from database 
-                                        # to ensure consistency between components
-                                        current_appearances = memory_system.get_recent_appearances(1)
-                                        if current_appearances:
-                                            appearance_display.content = current_appearances[0]["description"]
-                                        else:
-                                            # Fallback to the most recent tag if database query fails
-                                            appearance_display.content = appearance_tags[-1]
                                     
                                     # Only include clothing if clothing tags were found
                                     if clothing_tags:
                                         mock_response['clothing'] = clothing_tags
-                                        # Store clothing changes in test mode too
-                                        for clothing in clothing_tags:
-                                            memory_system.add_clothing(clothing)
-                                            
-                                        # Update the display with most recent clothing from database 
-                                        # to ensure consistency between components
-                                        current_clothing = memory_system.get_recent_clothing(1)
-                                        if current_clothing:
-                                            clothing_display.content = current_clothing[0]["description"]
-                                        else:
-                                            # Fallback to the most recent tag if database query fails
-                                            clothing_display.content = clothing_tags[-1]
-                                        
-                                        has_clothing_update = True
-                                    else:
-                                        has_clothing_update = False
                                     
                                     # Only include location if location tags were found
                                     if location_tags:
                                         mock_response['location'] = location_tags[0]  # Only use the first location tag
-                                        # Store location in test mode too
-                                        memory_system.update_location(location_tags[0])
                                     
-                                    # If image tags were found, create mock image data
+                                    # If image tags were found, process them through the actual image generation pipeline
                                     if image_tags:
-                                        # Use nyx_avatar.png for all placeholders but ensure unique URLs for navigation
-                                        avatar_path = '/assets/images/nyx_avatar.png'
+                                        # Get current state for image generation
+                                        current_appearance = memory_system.get_recent_appearances(1)
+                                        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+                                        current_mood = memory_system.get_current_mood()
+                                        current_location = memory_system.get_recent_locations(1)
+                                        current_location_text = current_location[0]["description"] if current_location else None
                                         
-                                        # Create mock image entries for each tag
-                                        for i, tag in enumerate(image_tags):
-                                            # Add a query parameter to make each URL unique
-                                            unique_url = f"{avatar_path}?id={i}"
-                                            mock_response['images'].append({
-                                                'url': unique_url,  # Use unique URLs for each image
-                                                'description': tag.strip(),
-                                                'original_prompt': tag.strip(),
-                                                'parsed_prompt': f"Parsed version of: {tag.strip()}"
-                                            })
+                                        # Create image context
+                                        image_context = {
+                                            "appearance": current_appearance_text,
+                                            "mood": current_mood,
+                                            "location": current_location_text,
+                                            "images": [{"content": content, "sequence": i+1} for i, content in enumerate(image_tags)]
+                                        }
+                                        
+                                        # Parse scenes using the actual parser
+                                        parsed_scenes = await chat_pipeline.image_scene_parser.parse_images(
+                                            json.dumps(image_context),
+                                            current_appearance=current_appearance_text
+                                        )
+                                        
+                                        if parsed_scenes:
+                                            # Generate images using the actual generator
+                                            image_urls = await chat_pipeline.image_generator.generate(parsed_scenes)
+                                            
+                                            # Process results
+                                            for i, image_url in enumerate(image_urls):
+                                                if image_url:
+                                                    # Get the sequence number from the frame field if present, otherwise use index + 1
+                                                    sequence = parsed_scenes[i].get("frame", i + 1)
+                                                    try:
+                                                        image_uuid = image_url.split('/')[-1].split('.')[0]
+                                                    except:
+                                                        image_uuid = f"img_{int(time.time())}_{i}"
+                                                    
+                                                    # Get the original content from the corresponding input image
+                                                    original_prompt = ""
+                                                    if i < len(image_tags):
+                                                        original_prompt = image_tags[i]
+                                                    
+                                                    mock_response['images'].append({
+                                                        "url": image_url,
+                                                        "description": parsed_scenes[i].get("content", parsed_scenes[i].get("prompt", "Generated image")),
+                                                        "id": image_uuid,
+                                                        "sequence": sequence,
+                                                        "original_prompt": original_prompt,
+                                                        "parsed_prompt": parsed_scenes[i].get("prompt", ""),
+                                                        "scene_data": parsed_scenes[i]  # Include the full scene data
+                                                    })
                                     
                                     response = mock_response
                                 else:

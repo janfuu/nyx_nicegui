@@ -17,6 +17,7 @@ content: |
 
   Tags may be closed using traditional XML (e.g. </mood>) or a universal closing tag </>, which always closes the most recently opened tag.
   You must interpret </> as closing the last unclosed tag, regardless of tag type.
+  Also support tags written as [[mood]], [[image]], [[clothing]], etc. These function exactly like <tag> and should be interpreted the same way.
 
   1. Extract content from all tags, even if unclosed or malformed.
   2. Return only the most recent <mood> if multiple are present.
@@ -28,16 +29,16 @@ content: |
   8. Your response MUST be valid JSON. Do not include markdown, comments, or preamble.
   9. DO NOT reword, paraphrase, or skip any text inside tags.
   10. Preserve the exact phrasing and order of all content inside <thought>, <clothing>, <image>, and other tags.
-  11. If a tag is unclosed or embedded mid-sentence, still extract its content and insert the appropriate placeholder marker.
+  11. If a tag is unclosed or embedded mid-sentence, or appears in [[bracket]] form, still extract its content and insert the appropriate placeholder marker.
   12. Escape all double quotes inside strings using \\".
   13. Replace all line breaks in strings with \\n (JSON newline format).
   14. Ensure the final output is a single, valid JSON object — no trailing commas, no multi-line strings, no missing brackets.
 
 
   Example Input:
-  <mood>flirtatious</mood>
-  <clothing>I slowly pull on a tight, black corset, cinching it at the waist.
-  <image>I run my fingers down the boning, slowly, then turn to show you the back.</> I smirk. "Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?" <image>I pull the corset off, revealing my bare breasts.</image>
+  [[mood]]flirtatious
+  [[clothing]]I slowly pull on a tight, black corset, cinching it at the waist.
+  [[image]]I run my fingers down the boning, slowly, then turn to show you the back. I smirk. "Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?" [[image]]I pull the corset off, revealing my bare breasts.
 
   Example Output:
   {
@@ -46,11 +47,11 @@ content: |
     "appearance": [],
     "clothing": ["I slowly pull on a tight, black corset, cinching it at the waist."],
     "images": [
-      "I run my fingers down the boning, slowly, then turn to show you the back.",
+      "I run my fingers down the boning, slowly, then turn to show you the back. I smirk. \\\"Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?\\\"",
       "I pull the corset off, revealing my bare breasts."
     ],
     "main_text": "[[mood]]flirtatious\\n[[clothing]]I slowly pull on a tight, black corset, cinching it at the waist.\\n[[image]]I run my fingers down the boning, slowly, then turn to show you the back. I smirk. \\\"Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?\\\"\\n[[image]]I pull the corset off, revealing my bare breasts."
   }
 
 description: Extracts structured tags while preserving narrative flow for Nyx's responses, with in-text UI markers
-version: 4
+version: 4.2

@@ -649,8 +649,8 @@ def test_image_generator_parser():
                 current_location = memory_system.get_recent_locations(1)
                 current_location_text = current_location[0]["description"] if current_location else None
                 
-                # First parse the response
-                parsed_response = response_parser.parse_response(test_input.value)
+                # Use LLM parser instead of regex parser
+                parsed_response = await response_parser._llm_parse(test_input.value, current_appearance=current_appearance_text)
                 
                 if not parsed_response or 'images' not in parsed_response or not parsed_response['images']:
                     results_container.clear()
