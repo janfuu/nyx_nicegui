@@ -271,9 +271,11 @@ class ResponseParser:
                             "thoughts": {"type": "array", "items": {"type": "string"}},
                             "mood": {"type": ["string", "null"]},
                             "appearance": {"type": "array", "items": {"type": "string"}},
-                            "images": {"type": "array", "items": {"type": "string"}}
+                            "images": {"type": "array", "items": {"type": "string"}},
+                            "moment": {"type": ["string", "null"]},
+                            "secret": {"type": "array", "items": {"type": "string"}}
                         },
-                        "required": ["main_text", "thoughts", "mood", "appearance", "images"]
+                        "required": ["main_text", "thoughts", "mood", "appearance", "images", "moment", "secret"]
                     }
                 }
             }

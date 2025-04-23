@@ -5,6 +5,7 @@ from pathlib import Path
 from nicegui import app, ui
 import asyncio
 import logging
+import yaml
 
 # Set up logging
 logging.basicConfig(
@@ -51,8 +52,8 @@ def get_embedder():
 db = Database()
 
 # Load configuration
-with open(Path(__file__).parent / 'config.json', 'r') as file:
-    config = json.load(file)
+with open(Path(__file__).parent / 'config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
 
 # Read config file
 appName = config["app"]["title"]

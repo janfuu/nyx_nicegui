@@ -67,7 +67,7 @@ class QdrantMemoryStore:
             self.logger.error(f"Qdrant connection error: {str(e)}")
             return False
 
-    async def store_memory(self, text, vector, memory_type="chat", mood=None, tags=None):
+    async def store_memory(self, text, vector, memory_type="chat", mood=None, mood_vector=None, tags=None):
         """
         Store a memory with its embedding vector in Qdrant
         
@@ -76,6 +76,7 @@ class QdrantMemoryStore:
             vector (list): The embedding vector of the memory
             memory_type (str): Type of memory (chat, reflection, observation, etc.)
             mood (str): The mood associated with the memory
+            mood_vector (list): The embedding vector of the mood
             tags (list): List of tags for the memory
         """
         memory_id = str(uuid.uuid4())
@@ -86,6 +87,7 @@ class QdrantMemoryStore:
             "type": memory_type,
             "timestamp": timestamp,
             "mood": mood,
+            "mood_vector": mood_vector,
             "tags": tags or []
         }
         
@@ -132,6 +134,50 @@ class QdrantMemoryStore:
         
         return search_results
 
+    async def update_memory(self, memory_id, **updates):
+        """
+        Update an existing memory with additional data
+        
+        Args:
+            memory_id (str): The ID of the memory to update
+            **updates: Key-value pairs to update in the memory's payload
+        """
+        try:
+            # Get the current memory
+            loop = asyncio.get_event_loop()
+            current_memory = await loop.run_in_executor(
+                None,
+                lambda: self.client.retrieve(
+                    collection_name=self.collection_name,
+                    ids=[memory_id],
+                    with_payload=True,
+                    with_vectors=False
+                )
+            )
+            
+            if not current_memory:
+                self.logger.error(f"Memory {memory_id} not found for update")
+                return False
+                
+            # Update the payload
+            current_payload = current_memory[0].payload
+            current_payload.update(updates)
+            
+            # Update the memory
+            await loop.run_in_executor(
+                None,
+                lambda: self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload=current_payload,
+                    points=[memory_id]
+                )
+            )
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating memory {memory_id}: {str(e)}")
+            return False
+
     async def get_memories_by_tags(self, tags, limit=10):
         """
         Get memories by tags
@@ -168,3 +214,19 @@ class QdrantMemoryStore:
         )
         
         return search_results[0]  # Returns just the points, not the next page pointer 
+
+    @staticmethod
+    def format_memories(memories):
+        """
+        Format a list of memories into a readable string
+        
+        Args:
+            memories (list): List of memory dictionaries with 'type', 'mood', and 'text' fields
+            
+        Returns:
+            str: Formatted string of memories
+        """
+        return "\n".join(
+            f"- ({m['type']}, mood: {m.get('mood', 'neutral')}): {m['text']}" 
+            for m in memories
+        ) 

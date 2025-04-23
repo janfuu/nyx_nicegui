@@ -27,7 +27,6 @@ class ChatPipeline:
         self.logger.info(f"Processing message: {user_message[:50]}...")
         
         # Step 1: Get context
-        self.logger.debug("Step 1: Getting context from memory system")
         try:
             conversation_history = self.memory_system.get_recent_conversation(limit=20)
             current_mood = self.memory_system.get_current_mood()
@@ -42,14 +41,7 @@ class ChatPipeline:
                 "error": True
             }
         
-        # Log context information
-        self.logger.debug(f"Current mood: {current_mood}")
-        self.logger.debug(f"Current appearance: {current_appearance[0]['description'] if current_appearance else 'default'}")
-        self.logger.debug(f"World state: {world_state}")
-        self.logger.debug(f"Found {len(relevant_memories) if relevant_memories else 0} relevant memories")
-        
         # Step 2: Build system prompt
-        self.logger.debug("Step 2: Building system prompt")
         try:
             system_prompt = self.llm.build_system_message(
                 mood=current_mood,
@@ -64,7 +56,6 @@ class ChatPipeline:
             }
         
         # Step 3: Get LLM response with retries
-        self.logger.debug("Step 3: Generating LLM response")
         main_provider = self.config.get("llm", "main_provider", None)
         main_model = self.config.get("llm", "main_model", None)
         
@@ -94,7 +85,6 @@ class ChatPipeline:
                     }
         
         # Step 4: Parse response for tags
-        self.logger.debug("Step 4: Parsing response for special tags")
         try:
             parsed_content = await ResponseParser._llm_parse(
                 llm_response,
@@ -113,62 +103,90 @@ class ChatPipeline:
                 "error": True
             }
         
-        # Log what was extracted in detail
-        self.logger.debug(f"Parsed content: {json.dumps(parsed_content, indent=2)}")
+        # Store semantic memories
+        try:
+            mood = parsed_content.get("mood")
+            mood_vector = None
+            if mood:
+                mood_vector = self.embedder.embed_prompt(mood).tolist()
+            moment_memory_id = None  # Track the moment memory ID if we store one
+            
+            # Store thoughts
+            for thought in parsed_content.get("thoughts", []):
+                await self.qdrant_memory.store_memory(
+                    text=thought,
+                    vector=self.embedder.embed_prompt(thought).tolist(),
+                    memory_type="thought",
+                    mood=mood,
+                    mood_vector=mood_vector,
+                    tags=["thought"]
+                )
+            
+            # Store secrets
+            for secret in parsed_content.get("secret", []):
+                await self.qdrant_memory.store_memory(
+                    text=secret,
+                    vector=self.embedder.embed_prompt(secret).tolist(),
+                    memory_type="secret",
+                    mood=mood,
+                    mood_vector=mood_vector,
+                    tags=["secret"]
+                )
+            
+            # Store moments
+            if parsed_content.get("moment") is not None:
+                main_text = parsed_content.get("main_text")
+                if main_text:
+                    moment_memory_id = await self.qdrant_memory.store_memory(
+                        text=main_text,
+                        vector=self.embedder.embed_prompt(main_text).tolist(),
+                        memory_type="moment",
+                        mood=mood,
+                        mood_vector=mood_vector,
+                        tags=["moment"]
+                    )
+        except Exception as e:
+            self.logger.error(f"Error storing semantic memories: {str(e)}")
+            # Continue execution even if memory storage fails
         
-        if parsed_content.get("thoughts"):
-            self.logger.info(f"Extracted {len(parsed_content['thoughts'])} thoughts")
-            for i, thought in enumerate(parsed_content['thoughts']):
-                self.logger.debug(f"Thought {i+1}: {thought[:50]}...")
-        
+        # Process mood and appearance changes
         if parsed_content.get("mood"):
-            self.logger.info(f"Mood update: {parsed_content['mood']}")
             self.memory_system.update_mood(parsed_content["mood"])
+            self.logger.info(f"Mood update: {parsed_content['mood']}")
         
-        # Process appearance changes
         if parsed_content.get("appearance"):
             for change in parsed_content["appearance"]:
                 self.memory_system.add_appearance(change)
             self.logger.info(f"Added {len(parsed_content['appearance'])} appearance changes")
         
-        # Process clothing changes
         if parsed_content.get("clothing"):
             for change in parsed_content["clothing"]:
                 self.memory_system.add_clothing(change)
             self.logger.info(f"Added {len(parsed_content['clothing'])} clothing changes")
         
-        # Process location changes
         if parsed_content.get("location"):
             self.memory_system.update_location(parsed_content["location"])
             self.logger.info(f"Updated location to: {parsed_content['location']}")
         
         # Step 5: Store conversation
-        self.logger.debug("Step 5: Storing conversation in memory")
         try:
             self.memory_system.add_conversation_entry("user", user_message)
             self.memory_system.add_conversation_entry("assistant", parsed_content["main_text"])
         except Exception as e:
             self.logger.error(f"Error storing conversation: {str(e)}")
-            # Continue execution even if storage fails
         
         # Step 6: Process response elements
-        self.logger.debug("Step 6: Processing extracted elements")
         try:
-            # Process thoughts
             for thought in parsed_content.get("thoughts", []):
                 self.memory_system.add_thought(thought)
         except Exception as e:
             self.logger.error(f"Error processing response elements: {str(e)}")
-            # Continue execution even if processing fails
         
         # Step 7: Generate images with timeout
-        self.logger.debug("Step 7: Processing images from response")
         generated_images = []
         
         if parsed_content.get("images"):
             try:
-                # IMPORTANT: Re-fetch all character state AFTER processing the response elements
-                # This ensures we use the UPDATED state for image generation
                 current_appearance = self.memory_system.get_recent_appearances(1)
                 current_appearance_text = current_appearance[0]["description"] if current_appearance else None
                 current_mood = self.memory_system.get_current_mood()
@@ -176,11 +194,6 @@ class ChatPipeline:
                 current_location_text = current_location[0]["description"] if current_location else None
                 current_clothing = self.memory_system.get_recent_clothing(1)
                 current_clothing_text = current_clothing[0]["description"] if current_clothing else None
-                
-                # Get the full character state AFTER updates
-                character_state = self.memory_system.get_character_state()
-                
-                self.logger.info(f"Using updated character state for image generation: mood={current_mood}, clothing={current_clothing_text[:30] if current_clothing_text else 'None'}")
                 
                 image_context = {
                     "appearance": current_appearance_text,
@@ -190,39 +203,32 @@ class ChatPipeline:
                     "images": [{"content": content, "sequence": i+1} for i, content in enumerate(parsed_content["images"])]
                 }
                 
-                # Parse scenes with async method
                 parsed_scenes = await self.image_scene_parser.parse_images(
                     json.dumps(image_context),
                     current_appearance=current_appearance_text
                 )
                 
                 if parsed_scenes:
-                    # Generate all images in parallel
                     scene_contents = []
                     for scene in parsed_scenes:
                         if isinstance(scene, dict) and ('content' in scene or 'prompt' in scene):
-                            # Already has the right structure
                             scene_contents.append(scene)
                         else:
-                            # Convert to proper format
                             scene_contents.append({
                                 "prompt": scene if isinstance(scene, str) else str(scene),
-                                "orientation": "portrait"  # Default orientation
+                                "orientation": "portrait"
                             })
                     
                     image_urls = await self.image_generator.generate(scene_contents)
                     
-                    # Process results
                     for i, image_url in enumerate(image_urls):
                         if image_url:
-                            # Get the sequence number from the frame field if present, otherwise use index + 1
                             sequence = scene_contents[i].get("frame", i + 1)
                             try:
                                 image_uuid = image_url.split('/')[-1].split('.')[0]
                             except:
                                 image_uuid = f"img_{int(time.time())}_{i}"
                             
-                            # Get the original content from the corresponding input image
                             original_prompt = ""
                             if i < len(parsed_content["images"]):
                                 original_prompt = parsed_content["images"][i]
@@ -250,14 +256,28 @@ class ChatPipeline:
                                 )
                             )
                 
-                # Sort images by sequence number
                 generated_images.sort(key=lambda x: x["sequence"])
-                self.logger.info(f"Generated {len(generated_images)} images in parallel")
+                self.logger.info(f"Generated {len(generated_images)} images")
+                
+                # If we stored a moment memory, update it with the image IDs
+                if moment_memory_id:
+                    try:
+                        # Only update if we have images
+                        if generated_images:
+                            # Use the same image_uuid that will be used for Qdrant storage
+                            image_ids = [img["id"] for img in generated_images]
+                            await self.qdrant_memory.update_memory(
+                                memory_id=moment_memory_id,
+                                image_ids=image_ids
+                            )
+                            self.logger.info(f"Updated moment memory {moment_memory_id} with {len(image_ids)} image IDs")
+                        else:
+                            self.logger.info(f"No images to associate with moment memory {moment_memory_id}")
+                    except Exception as e:
+                        self.logger.error(f"Error updating moment memory with image IDs: {str(e)}")
             except Exception as e:
                 self.logger.error(f"Error in image generation pipeline: {str(e)}")
         
-        # Return the response with images if they were generated
-        self.logger.info("Message processing complete")
         return {
             "text": parsed_content["main_text"],
             "thoughts": parsed_content.get("thoughts", []),

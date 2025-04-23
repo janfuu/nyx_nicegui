@@ -1,15 +1,20 @@
 from app.models.database import Database
 from app.models.prompt_models import PromptManager
 from app.core.state_manager import StateManager
+from app.services.qdrant_memory_store import QdrantMemoryStore
+from app.services.embedding_service import Embedder
 import json
 import time
 import sqlite3
 import numpy as np
+import asyncio
 
 class MemorySystem:
     def __init__(self):
         self.db = Database()
         self.state_manager = StateManager()  # Use the new state manager
+        self.qdrant_memory = QdrantMemoryStore()
+        self.embedder = Embedder()
         self.appearance_changes = []
         self.location = None
         self.thoughts = []
@@ -44,15 +49,17 @@ class MemorySystem:
     
     def add_thought(self, content, importance=5, embedding=None):
         """Add an extracted thought with importance level"""
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "INSERT INTO thoughts (content, importance, embedding) VALUES (?, ?, ?)",
-            (content, importance, embedding)
-        )
-        conn.commit()
-        return cursor.lastrowid
+        try:
+            vector = self.embedder.embed_prompt(content).tolist()
+            asyncio.create_task(self.qdrant_memory.store_memory(
+                text=content,
+                vector=vector,
+                memory_type="thought",
+                tags=["thought"],
+                mood=self.get_current_mood()
+            ))
+        except Exception as e:
+            print(f"Failed to store to Qdrant: {e}")
     
     # Forward state-related methods to StateManager
     def update_mood(self, mood: str):
@@ -154,15 +161,15 @@ class MemorySystem:
             for content, importance in thought_results:
                 memories.append({
                     "type": "thought",
-                    "value": content,
-                    "importance": importance
+                    "text": content,
+                    "mood": self.get_current_mood()
                 })
             
             for (content,) in convo_results:
                 memories.append({
                     "type": "conversation",
-                    "value": content,
-                    "importance": 3  # Default importance
+                    "text": content,
+                    "mood": self.get_current_mood()
                 })
             
             # Sort by importance
@@ -188,6 +195,29 @@ class MemorySystem:
         thoughts = [{"content": content, "importance": importance, "timestamp": timestamp} 
                    for content, importance, timestamp in results]
         return thoughts
+
+    async def get_semantic_memories(self, query, limit=5, score_threshold=0.7):
+        """Retrieve semantically similar memories from Qdrant"""
+        try:
+            vector = self.embedder.embed_prompt(query).tolist()
+            results = await self.qdrant_memory.search_similar(
+                query_vector=vector,
+                limit=limit,
+                score_threshold=score_threshold
+            )
+            return [
+                {
+                    "text": hit.payload.get("text"),
+                    "type": hit.payload.get("type"),
+                    "mood": hit.payload.get("mood", "neutral"),
+                    "tags": hit.payload.get("tags", []),
+                    "score": hit.score
+                }
+                for hit in results
+            ]
+        except Exception as e:
+            print(f"Memory search failed: {e}")
+            return []
 
     def get_recent_emotions(self, limit=10):
         """Get recent emotions"""

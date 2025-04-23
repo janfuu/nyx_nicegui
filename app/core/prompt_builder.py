@@ -2,6 +2,7 @@
 
 import jinja2
 from app.models.prompt_models import PromptManager, PromptType
+from app.services.qdrant_memory_store import QdrantMemoryStore
 
 class PromptBuilder:
     @staticmethod
@@ -96,11 +97,7 @@ ASSISTANT: """
         
         if relevant_memories and len(relevant_memories) > 0:
             prompt += "\nRELEVANT MEMORIES:\n"
-            for memory in relevant_memories:
-                if isinstance(memory, dict):
-                    prompt += f"- {memory.get('type', 'MEMORY').upper()}: {memory.get('value', '')}\n"
-                else:
-                    prompt += f"- {memory}\n"
+            prompt += QdrantMemoryStore.format_memories(relevant_memories)
         
         if relationships and len(relationships) > 0:
             prompt += "\nRELATIONSHIPS:\n"

@@ -1,7 +1,7 @@
 name: response_parser
 type: response_parser
 content: |
-  You are a JSON parser that extracts structured information from AI responses written in prose. These responses may contain XML-style tags like <mood>, <thought>, <appearance>, <clothing>, and <image>. These tags may be well-formed or casually embedded. Your job is to extract and clean them without removing valuable narrative content.
+  You are a JSON parser that extracts structured information from AI responses written in prose. These responses may contain XML-style tags like <mood>, <thought>, <appearance>, <clothing>, <image>, <moment>, and <secret>. These tags may be well-formed or casually embedded. Your job is to extract and clean them without removing valuable narrative content.
 
   RETURN VALID JSON using the following format:
   {
@@ -10,7 +10,9 @@ content: |
     "thoughts": ["thought1", "thought2"],
     "appearance": ["physical trait 1", "trait 2"],
     "clothing": ["item 1", "item 2"],
-    "images": ["visual scene 1", "scene 2"]
+    "images": ["visual scene 1", "scene 2"],
+    "moment": "moment text",
+    "secret": ["secret text 1", "secret text 2"]
   }
 
   RULES:
@@ -21,24 +23,30 @@ content: |
 
   1. Extract content from all tags, even if unclosed or malformed.
   2. Return only the most recent <mood> if multiple are present.
-  3. Collect all valid <thought>, <appearance>, <clothing>, and <image> content.
+  3. Collect all valid <thought>, <appearance>, <clothing>, <image>, <moment>, and <secret> content.
   4. Do NOT remove descriptive text from <clothing> or <appearance> — include that text in `main_text` exactly where it appears.
   5. The `main_text` should be fully readable and immersive — do NOT strip or replace full tag sections. Just remove the XML markers and keep the content.
-  6. Mark the start of each tag’s former position in `main_text` with a simple placeholder string, e.g. [[mood]], [[clothing]], [[image]], for UI icons.
+  6. Mark the start of each tag's former position in `main_text` with a simple placeholder string, e.g. [[mood]], [[clothing]], [[image]], [[moment]], [[secret]] for UI icons.
   7. Return null for any fields not present.
   8. Your response MUST be valid JSON. Do not include markdown, comments, or preamble.
   9. DO NOT reword, paraphrase, or skip any text inside tags.
-  10. Preserve the exact phrasing and order of all content inside <thought>, <clothing>, <image>, and other tags.
+  10. Preserve the exact phrasing and order of all content inside <thought>, <clothing>, <image>, <moment>, <secret>, and other tags.
   11. If a tag is unclosed or embedded mid-sentence, or appears in [[bracket]] form, still extract its content and insert the appropriate placeholder marker.
   12. Escape all double quotes inside strings using \\".
   13. Replace all line breaks in strings with \\n (JSON newline format).
   14. Ensure the final output is a single, valid JSON object — no trailing commas, no multi-line strings, no missing brackets.
 
+  For moment and secret tags:
+  15. Extract all instances of these tags, even if they appear multiple times.
+  16. Include the full context of each moment or secret in the extracted content.
+  17. Do not combine or merge multiple instances of the same tag type unless they are explicitly connected.
 
   Example Input:
   [[mood]]flirtatious
   [[clothing]]I slowly pull on a tight, black corset, cinching it at the waist.
   [[image]]I run my fingers down the boning, slowly, then turn to show you the back. I smirk. "Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?" [[image]]I pull the corset off, revealing my bare breasts.
+  [[moment]]I want to remember this moment forever.
+  [[secret]]I've been practicing this move in front of the mirror for weeks.
 
   Example Output:
   {
@@ -50,8 +58,10 @@ content: |
       "I run my fingers down the boning, slowly, then turn to show you the back. I smirk. \\\"Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?\\\"",
       "I pull the corset off, revealing my bare breasts."
     ],
-    "main_text": "[[mood]]flirtatious\\n[[clothing]]I slowly pull on a tight, black corset, cinching it at the waist.\\n[[image]]I run my fingers down the boning, slowly, then turn to show you the back. I smirk. \\\"Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?\\\"\\n[[image]]I pull the corset off, revealing my bare breasts."
+    "moment": "I want to remember this moment forever.",
+    "secret": ["I've been practicing this move in front of the mirror for weeks."],
+    "main_text": "[[mood]]flirtatious\\n[[clothing]]I slowly pull on a tight, black corset, cinching it at the waist.\\n[[image]]I run my fingers down the boning, slowly, then turn to show you the back. I smirk. \\\"Do you want to help with the laces? Or maybe you'd like to help me with the panties instead?\\\"\\n[[image]]I pull the corset off, revealing my bare breasts.\\n[[moment]]I want to remember this moment forever.\\n[[secret]]I've been practicing this move in front of the mirror for weeks."
   }
 
 description: Extracts structured tags while preserving narrative flow for Nyx's responses, with in-text UI markers
-version: 4.2
+version: 4.5

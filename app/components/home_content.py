@@ -8,6 +8,7 @@ import json
 from typing import List
 import re
 from .lightbox import Lightbox
+import uuid
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
