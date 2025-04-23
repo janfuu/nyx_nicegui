@@ -121,7 +121,44 @@ class ImageSceneParser:
                 "messages": messages,
                 "temperature": 0.2,
                 "max_tokens": 1024,
-                "response_format": {"type": "json_object"}
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "type": "object",
+                        "properties": {
+                            "images": {
+                                "type": "array",
+                                "description": "List of parsed image frames",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "prompt": {
+                                            "type": "string",
+                                            "description": "Comma-separated tag string for the image"
+                                        },
+                                        "original_text": {
+                                            "type": "string",
+                                            "description": "The original prose or source description"
+                                        },
+                                        "orientation": {
+                                            "type": "string",
+                                            "enum": ["square", "portrait", "landscape"],
+                                            "description": "Image orientation for framing"
+                                        },
+                                        "frame": {
+                                            "type": "integer",
+                                            "description": "The order or sequence number of this image"
+                                        }
+                                    },
+                                    "required": ["prompt", "original_text", "orientation", "frame"],
+                                    "additionalProperties": false
+                                }
+                            }
+                        },
+                        "required": ["images"],
+                        "additionalProperties": false
+                    }
+                }
             }
 
             logger.debug(f"Image parser request to {endpoint}: {json.dumps(payload, indent=2)}")

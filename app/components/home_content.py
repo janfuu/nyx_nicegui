@@ -239,111 +239,117 @@ chat_pipeline = ChatPipeline()
 
 # Helper function to clean response text by removing image tags
 def clean_response_text(text):
-    """Remove tags from response text while preserving conversation flow"""
-    # Define visible tags (these get replaced with placeholders)
-    visible_tag_replacements = {
-        r'<image>(.*?)</image>': '[Image]'
+    """Process the main text with [[tag]] markers for UI display"""
+    # Define tag markers and their UI representations
+    tag_markers = {
+        '[[mood]]': '<span class="mood-marker">😊</span>',
+        '[[thought]]': '<span class="thought-marker">💭</span>',
+        '[[appearance]]': '<span class="appearance-marker">👤</span>',
+        '[[clothing]]': '<span class="clothing-marker">👕</span>',
+        '[[image]]': '<span class="image-marker">🖼️</span>',
+        '[[fantasy]]': '<span class="fantasy-marker">✨</span>',
+        '[[desire]]': '<span class="desire-marker">❤️</span>',
+        '[[memory]]': '<span class="memory-marker">📚</span>',
+        '[[secret]]': '<span class="secret-marker">🔒</span>'
     }
     
-    # Define tags for removable tags (these should be removed from the display)
-    removable_tags = ['thought', 'mood', 'appearance', 'clothing', 'location']
+    # Replace all tag markers with their UI representations
+    for marker, replacement in tag_markers.items():
+        text = text.replace(marker, replacement)
     
-    # Define tags for special styling (these get styled but kept)
-    styled_tags = ['desire', 'internal', 'fantasy', 'hidden', 'private']
-    
-    # Define hidden tags (these get completely removed)
-    hidden_tags = ['secret']
-    
-    # Replace visible tags with placeholders
-    cleaned = text
-    for pattern, replacement in visible_tag_replacements.items():
-        cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
-    
-    # Process tags that should be removed from display
-    for tag in removable_tags:
-        # First, handle unclosed tags by closing them
-        # Look for an opening tag not followed by a closing tag
-        unclosed_pattern = f'<{tag}>(.*?)(?!</{tag}>)(?=<[a-z]+>|[.]|[\n]|$)'
+    return text
+
+def display_message(chat_box, response, memory_system):
+    """Display a message in the chat box with proper formatting and tag handling"""
+    # Create a message container for text and related images
+    with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
+        # Clean response text by removing image tags before displaying
+        cleaned_text = clean_response_text(response['main_text'])
+        ui.markdown(cleaned_text).classes('text-white')
         
-        # Find all matches (there could be multiple unclosed tags)
-        index_shift = 0
-        for match in re.finditer(unclosed_pattern, cleaned, flags=re.DOTALL):
-            start_idx = match.start() + index_shift
-            end_idx = match.end() + index_shift
-            content = match.group(1)
-            
-            # Close the tag properly by inserting the closing tag
-            closing_tag = f'</{tag}>'
-            cleaned = cleaned[:end_idx] + closing_tag + cleaned[end_idx:]
-            
-            # Update the index shift for subsequent matches
-            index_shift += len(closing_tag)
-            
-        # Now handle properly closed tags (which include those we just fixed)
-        pattern = f'<{tag}>(.*?)</{tag}>'
-        cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
-    
-    # Process styled tags (keep content but add CSS styling)
-    for tag in styled_tags:
-        # First, handle unclosed tags by closing them
-        unclosed_pattern = f'<{tag}>(.*?)(?!</{tag}>)(?=<[a-z]+>|[.]|[\n]|$)'
+        # Add indicator for hidden content if present
+        if has_hidden_content(response['main_text']):
+            with ui.row().classes('justify-end items-center mt-1'):
+                ui.icon('lock', color='grey').classes('text-xs')
         
-        # Find all matches (there could be multiple unclosed tags)
-        index_shift = 0
-        for match in re.finditer(unclosed_pattern, cleaned, flags=re.DOTALL):
-            start_idx = match.start() + index_shift
-            end_idx = match.end() + index_shift
-            
-            # Close the tag properly by inserting the closing tag
-            closing_tag = f'</{tag}>'
-            cleaned = cleaned[:end_idx] + closing_tag + cleaned[end_idx:]
-            
-            # Update the index shift for subsequent matches
-            index_shift += len(closing_tag)
-        
-        # Now handle properly closed tags (which include those we just fixed)
-        pattern = f'<{tag}>(.*?)</{tag}>'
-        # Replace with styled span
-        replacement = f'<span class="styled-tag {tag}">\\1</span>'
-        cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
-    
-    # Process hidden tags
-    for tag in hidden_tags:
-        # First, handle unclosed tags by closing them
-        unclosed_pattern = f'<{tag}>(.*?)(?!</{tag}>)(?=<[a-z]+>|[.]|[\n]|$)'
-        
-        # Find all matches (there could be multiple unclosed tags)
-        index_shift = 0
-        for match in re.finditer(unclosed_pattern, cleaned, flags=re.DOTALL):
-            start_idx = match.start() + index_shift
-            end_idx = match.end() + index_shift
-            
-            # Close the tag properly by inserting the closing tag
-            closing_tag = f'</{tag}>'
-            cleaned = cleaned[:end_idx] + closing_tag + cleaned[end_idx:]
-            
-            # Update the index shift for subsequent matches
-            index_shift += len(closing_tag)
-        
-        # Now handle properly closed tags (which include those we just fixed)
-        pattern = f'<{tag}>(.*?)</{tag}>'
-        cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
-    
-    return cleaned
+        # Display generated images if present
+        if response.get("images") and len(response["images"]) > 0:
+            ui.separator().classes('my-2')
+            with ui.row().classes('q-gutter-sm flex-wrap justify-center'):
+                # Create a list to store image generation tasks
+                tasks = []
+                containers = []
+                
+                # First create all UI containers
+                for image_data in response["images"]:
+                    if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
+                        try:
+                            # Create a card for each image - make it much smaller
+                            with ui.card().classes('q-pa-xs'):
+                                loading = ui.spinner('default', size='md').props('color=primary')
+                                container = ui.button().props('flat dense').classes('w-[120px] h-[120px] overflow-hidden')
+                                with container:
+                                    img = ui.image().props('fit=cover').classes('w-full h-full')
+                                    img.visible = False
+                                
+                                with ui.row().classes('items-center justify-between q-mt-xs'):
+                                    desc = image_data["description"][:30] + "..." if len(image_data["description"]) > 30 else image_data["description"]
+                                    ui.label(desc).classes('text-caption text-grey-5 ellipsis')
+                                
+                                tasks.append({
+                                    'scene': image_data["description"],
+                                    'loading': loading,
+                                    'img': img,
+                                    'button': container
+                                })
+                                containers.append(container)
+                        except Exception as e:
+                            print(f"Error setting up image display: {str(e)}")
+                            ui.notify(f"Error displaying image: {str(e)}", type='negative')
+                
+                # Update UI for all images
+                for i, task in enumerate(tasks):
+                    try:
+                        # Get the right image data for this task
+                        current_image = response["images"][i]
+                        
+                        task['loading'].visible = False
+                        task['img'].set_source(current_image["url"])
+                        task['img'].visible = True
+                        
+                        # Generate a guaranteed unique ID for each image
+                        import uuid
+                        image_uuid = str(uuid.uuid4())
+                        
+                        # Get the original prompt from the image tags in the raw response text
+                        image_tags = re.findall(r'<image>(.*?)</image>', response['main_text'], re.DOTALL)
+                        original_prompt = ""
+                        if i < len(image_tags):
+                            original_prompt = image_tags[i].strip()
+                        else:
+                            # Fallback to the description if image tags can't be found
+                            original_prompt = current_image.get("description", "")
+                            
+                        # Add to lightbox with prompts
+                        lightbox.add_image(
+                            thumb_url=current_image["url"],
+                            orig_url=current_image["url"],
+                            image_id=image_uuid,
+                            original_prompt=original_prompt,
+                            parsed_prompt=current_image.get("parsed_prompt", current_image.get("description", ""))
+                        )
+                        
+                        # Set up click handler - update to use the lightbox
+                        task['button'].on('click', lambda url=current_image["url"]: lightbox._open(url))
+                    except Exception as e:
+                        print(f"Error updating image display: {str(e)}")
+                        task['loading'].visible = False
+                        ui.label('Display failed').classes('text-caption text-negative')
 
 # Function to check if text contains hidden content tags
 def has_hidden_content(text):
     """Check if the text contains any secret content tags"""
-    # Only secret tags are completely hidden now
-    hidden_tags = ['secret']
-    
-    # Check for each tag type
-    for tag in hidden_tags:
-        pattern = f'<{tag}>(.*?)</{tag}>'
-        if re.search(pattern, text, re.DOTALL):
-            return True
-    
-    return False
+    return '[[secret]]' in text
 
 def content() -> None:
     # Initialize memory system
@@ -642,43 +648,16 @@ def content() -> None:
                                     else:
                                         # Check for unclosed appearance tags and close them
                                         # First fix the response text by closing any unclosed tags
-                                        appearance_pattern = r'<appearance>(.*?)(?!</appearance>)(?=<[a-z]+>|\.|[\n]|$)'
-                                        fixed_text = response['text']
-                                        
-                                        # Find all matches (there could be multiple unclosed tags)
-                                        index_shift = 0
-                                        for match in re.finditer(appearance_pattern, fixed_text, flags=re.DOTALL):
-                                            start_idx = match.start() + index_shift
-                                            end_idx = match.end() + index_shift
-                                            content = match.group(1)
-                                            
-                                            # Close the tag properly by inserting the closing tag
-                                            closing_tag = '</appearance>'
-                                            fixed_text = fixed_text[:end_idx] + closing_tag + fixed_text[end_idx:]
-                                            
-                                            # Save this content to the database and update the UI
-                                            if content.strip():
-                                                memory_system.add_appearance(content.strip())
-                                                appearance_display.content = content.strip()
-                                                has_appearance_update = True
-                                                print(f"Found and closed unclosed appearance tag with content: '{content.strip()}'")
-                                            
-                                            # Update the index shift for subsequent matches
-                                            index_shift += len(closing_tag)
-                                        
-                                        # If we didn't find any unclosed tags and didn't process any updates above
-                                        if not has_appearance_update:
-                                            # Try looking for the properly closed tags in case previous code missed them
-                                            appearance_content = re.findall(r'<appearance>(.*?)</appearance>', fixed_text, re.DOTALL)
-                                            if appearance_content:
-                                                for appearance in appearance_content:
-                                                    # Check if this is a meaningful non-empty appearance update
-                                                    if appearance.strip():
-                                                        memory_system.add_appearance(appearance.strip())
-                                                        appearance_display.content = appearance.strip()
-                                                        has_appearance_update = True
-                                            else:
-                                                has_appearance_update = False
+                                        appearance_content = re.findall(r'<appearance>(.*?)</appearance>', response['text'], re.DOTALL)
+                                        if appearance_content:
+                                            for appearance in appearance_content:
+                                                # Check if this is a meaningful non-empty appearance update
+                                                if appearance.strip():
+                                                    memory_system.add_appearance(appearance.strip())
+                                                    appearance_display.content = appearance.strip()
+                                                    has_appearance_update = True
+                                        else:
+                                            has_appearance_update = False
                                     
                                     if response.get("clothing"):
                                         # Get the last clothing entry (most recent)
@@ -694,49 +673,17 @@ def content() -> None:
                                         # Force a UI update to ensure the clothing display is refreshed
                                         ui.update()
                                     else:
-                                        # Check for unclosed clothing tags and close them
-                                        # First fix the response text by closing any unclosed tags
-                                        clothing_pattern = r'<clothing>(.*?)(?!</clothing>)(?=<[a-z]+>|\.|[\n]|$)'
-                                        if 'fixed_text' not in locals():
-                                            fixed_text = response['text']
-                                        
-                                        # Find all matches (there could be multiple unclosed tags)
-                                        index_shift = 0
-                                        for match in re.finditer(clothing_pattern, fixed_text, flags=re.DOTALL):
-                                            start_idx = match.start() + index_shift
-                                            end_idx = match.end() + index_shift
-                                            content = match.group(1)
-                                            
-                                            # Close the tag properly by inserting the closing tag
-                                            closing_tag = '</clothing>'
-                                            fixed_text = fixed_text[:end_idx] + closing_tag + fixed_text[end_idx:]
-                                            
-                                            # Save this content to the database and update the UI
-                                            if content.strip():
-                                                memory_system.add_clothing(content.strip())
-                                                clothing_display.content = content.strip()
-                                                has_clothing_update = True
-                                                print(f"Found and closed unclosed clothing tag with content: '{content.strip()}'")
-                                            
-                                            # Update the index shift for subsequent matches
-                                            index_shift += len(closing_tag)
-                                        
-                                        # If we didn't find any unclosed tags and didn't process any updates above
-                                        if not has_clothing_update:
-                                            # Try looking for the properly closed tags in case previous code missed them
-                                            clothing_content = re.findall(r'<clothing>(.*?)</clothing>', fixed_text, re.DOTALL)
-                                            if clothing_content:
-                                                for clothing in clothing_content:
-                                                    # Check if this is a meaningful non-empty clothing update
-                                                    if clothing.strip():
-                                                        memory_system.add_clothing(clothing.strip())
-                                                        clothing_display.content = clothing.strip()
-                                                        has_clothing_update = True
-                                            else:
-                                                has_clothing_update = False
-                                        
-                                        # Update the response text with our fixed version that has properly closed tags
-                                        response['text'] = fixed_text
+                                        # Look for properly closed clothing tags
+                                        clothing_content = re.findall(r'<clothing>(.*?)</clothing>', response['text'], re.DOTALL)
+                                        if clothing_content:
+                                            for clothing in clothing_content:
+                                                # Check if this is a meaningful non-empty clothing update
+                                                if clothing.strip():
+                                                    memory_system.add_clothing(clothing.strip())
+                                                    clothing_display.content = clothing.strip()
+                                                    has_clothing_update = True
+                                        else:
+                                            has_clothing_update = False
                                 
                                 if response.get("location"):
                                     has_location_update = True
@@ -762,333 +709,37 @@ def content() -> None:
                                     # Remove the spinner row before showing the response
                                     chat_box.remove(spinner_row)
                                     
-                                    # Create a message container for text and related images
-                                    with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
-                                        # Clean response text by removing image tags before displaying
-                                        cleaned_text = clean_response_text(response['text'])
-                                        ui.markdown(cleaned_text).classes('text-white')
-                                        
-                                        # Add indicator for hidden content if present
-                                        if has_hidden_content(response['text']):
-                                            with ui.row().classes('justify-end items-center mt-1'):
-                                                ui.icon('lock', color='grey').classes('text-xs')
-                                        
-                                        # Update the side panels with thoughts, mood, and appearance
-                                        # But don't display them in the chat response anymore
-                                        has_updates = False
-                                        
-                                        if response.get("thoughts"):
-                                            for thought in response["thoughts"]:
-                                                thoughts_display.content = thought
-                                            has_thoughts_update = True
-                                        else:
-                                            has_thoughts_update = False
-                                        
-                                        if response.get("mood"):
-                                            mood_display.content = response["mood"]
-                                            has_mood_update = True
-                                        else:
-                                            has_mood_update = False
-                                        
-                                        # Add back the clothing update code that was removed
-                                        if response.get("clothing"):
-                                            # Get the last clothing entry (most recent)
-                                            last_clothing = response["clothing"][-1]
-                                            print(f"Updating clothing display in UI section with: '{last_clothing}'")
-                                            clothing_display.content = last_clothing
-                                            has_clothing_update = True
-                                        else:
-                                            has_clothing_update = False
-                                        
-                                        # Add status indicators if any updates exist
-                                        has_updates = has_thoughts_update or has_mood_update or has_appearance_update or has_location_update or has_clothing_update
-                                        
-                                        if has_updates:
-                                            ui.separator().classes('my-2')
-                                            with ui.row().classes('justify-end items-center gap-2 mt-2'):
-                                                ui.label("Updates:").classes('text-xs text-gray-400')
-                                                
-                                                if has_thoughts_update:
-                                                    ui.icon('psychology', color='purple').classes('text-lg')
-                                                
-                                                if has_mood_update:
-                                                    ui.icon('mood', color='blue').classes('text-lg')
-                                                
-                                                if has_appearance_update:
-                                                    ui.icon('face', color='pink').classes('text-lg')
-                                                
-                                                if has_clothing_update:
-                                                    ui.icon('checkroom', color='pink').classes('text-lg')
-                                                
-                                                if has_location_update:
-                                                    ui.icon('place', color='green').classes('text-lg')
-                                        
-                                        # Display generated images if present
-                                        if response.get("images") and len(response["images"]) > 0:
-                                            ui.separator().classes('my-2')
-                                            with ui.row().classes('q-gutter-sm flex-wrap justify-center'):
-                                                # Create a list to store image generation tasks
-                                                tasks = []
-                                                containers = []
-                                                
-                                                # First create all UI containers
-                                                for image_data in response["images"]:
-                                                    if isinstance(image_data, dict) and "url" in image_data and "description" in image_data:
-                                                        try:
-                                                            # Create a card for each image - make it much smaller
-                                                            with ui.card().classes('q-pa-xs'):
-                                                                loading = ui.spinner('default', size='md').props('color=primary')
-                                                                container = ui.button().props('flat dense').classes('w-[120px] h-[120px] overflow-hidden')
-                                                                with container:
-                                                                    img = ui.image().props('fit=cover').classes('w-full h-full')
-                                                                    img.visible = False
-                                                                
-                                                                with ui.row().classes('items-center justify-between q-mt-xs'):
-                                                                    desc = image_data["description"][:30] + "..." if len(image_data["description"]) > 30 else image_data["description"]
-                                                                    ui.label(desc).classes('text-caption text-grey-5 ellipsis')
-                                                                
-                                                                tasks.append({
-                                                                    'scene': image_data["description"],
-                                                                    'loading': loading,
-                                                                    'img': img,
-                                                                    'button': container
-                                                                })
-                                                                containers.append(container)
-                                                        except Exception as e:
-                                                            print(f"Error setting up image display: {str(e)}")
-                                                            ui.notify(f"Error displaying image: {str(e)}", type='negative')
-                                                
-                                                # Update UI for all images
-                                                for i, task in enumerate(tasks):
-                                                    try:
-                                                        # Get the right image data for this task
-                                                        current_image = response["images"][i]
-                                                        
-                                                        task['loading'].visible = False
-                                                        task['img'].set_source(current_image["url"])
-                                                        task['img'].visible = True
-                                                        
-                                                        # Generate a guaranteed unique ID for each image
-                                                        import uuid
-                                                        image_uuid = str(uuid.uuid4())
-                                                        
-                                                        # Get the original prompt from the image tags in the raw response text
-                                                        image_tags = re.findall(r'<image>(.*?)</image>', response['text'], re.DOTALL)
-                                                        original_prompt = ""
-                                                        if i < len(image_tags):
-                                                            original_prompt = image_tags[i].strip()
-                                                        else:
-                                                            # Fallback to the description if image tags can't be found
-                                                            original_prompt = current_image.get("description", "")
-                                                            
-                                                        # Add to lightbox with prompts
-                                                        lightbox.add_image(
-                                                            thumb_url=current_image["url"],
-                                                            orig_url=current_image["url"],
-                                                            image_id=image_uuid,
-                                                            original_prompt=original_prompt,
-                                                            parsed_prompt=current_image.get("parsed_prompt", current_image.get("description", ""))
-                                                        )
-                                                        
-                                                        # Set up click handler - update to use the lightbox
-                                                        task['button'].on('click', lambda url=current_image["url"]: lightbox._open(url))
-                                                    except Exception as e:
-                                                        print(f"Error updating image display: {str(e)}")
-                                                        task['loading'].visible = False
-                                                        ui.label('Display failed').classes('text-caption text-negative')
-                                        
-                                        # Add Regenerate button for re-running image generation
-                                        # Only show if there are images to regenerate
-                                        if response.get("images") and len(response["images"]) > 0:
-                                            ui.separator().classes('my-2')
-                                            with ui.row().classes('justify-between w-full'):
-                                                regenerate_button = ui.button('Regenerate Images', icon='refresh')\
-                                                    .props('color=purple').classes('mr-2')
-                                                
-                                                async def regenerate_images():
-                                                    nonlocal is_processing
-                                                    
-                                                    # Prevent multiple submissions while processing
-                                                    if is_processing:
-                                                        ui.notify('Still processing, please wait...', color='warning')
-                                                        return
-                                                    
-                                                    # Set processing flag
-                                                    is_processing = True
-                                                    
-                                                    # Show regeneration is happening
-                                                    regenerate_button.props('loading')
-                                                    
-                                                    # Add visible spinner to chat box
-                                                    with chat_box:
-                                                        regen_spinner_row = ui.row().classes('w-full justify-center my-4')
-                                                        with regen_spinner_row:
-                                                            ui.spinner('dots', size='lg', color='purple')
-                                                            ui.label('Regenerating images...').classes('text-gray-400 ml-2')
-                                                    
-                                                    ui.update()
-                                                    
-                                                    # Start a heartbeat to keep connection alive
-                                                    heartbeat_task = setup_heartbeat()
-                                                    
-                                                    try:
-                                                        # Get current appearance and mood for context
-                                                        current_appearance = memory_system.get_recent_appearances(1)
-                                                        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
-                                                        current_mood = memory_system.get_current_mood()
-                                                        current_location = memory_system.get_recent_locations(1)
-                                                        current_location_text = current_location[0]["description"] if current_location else None
-                                                        
-                                                        # Extract image tags from response
-                                                        image_pattern = r'<image>(.*?)</image>'
-                                                        image_tags = re.findall(image_pattern, response['text'], re.DOTALL)
-                                                        
-                                                        if not image_tags:
-                                                            ui.notify('No <image> tags found in the response', color='warning')
-                                                            # Remove spinner
-                                                            chat_box.remove(regen_spinner_row)
-                                                            regenerate_button.props('loading=false')
-                                                            is_processing = False
-                                                            return
-                                                        
-                                                        # Format image contents with context and sequence
-                                                        image_context = {
-                                                            "appearance": current_appearance_text,
-                                                            "mood": current_mood,
-                                                            "location": current_location_text,
-                                                            "images": [{"content": tag.strip(), "sequence": i+1} for i, tag in enumerate(image_tags)]
-                                                        }
-                                                        
-                                                        # Process through image parser
-                                                        try:
-                                                            # Use timeout for parser
-                                                            parsed_scenes = await asyncio.wait_for(
-                                                                chat_pipeline.image_scene_parser.parse_images(
-                                                                    json.dumps(image_context),
-                                                                    current_appearance=current_appearance_text
-                                                                ),
-                                                                timeout=60  # 60 second timeout for scene parsing
-                                                            )
-                                                        except asyncio.TimeoutError:
-                                                            ui.notify('Image scene parsing timed out. Please try again.', color='warning')
-                                                            # Remove spinner
-                                                            chat_box.remove(regen_spinner_row)
-                                                            regenerate_button.props('loading=false')
-                                                            is_processing = False
-                                                            return
-                                                        except Exception as e:
-                                                            ui.notify(f'Error parsing image scenes: {str(e)}', color='negative')
-                                                            # Remove spinner
-                                                            chat_box.remove(regen_spinner_row)
-                                                            regenerate_button.props('loading=false')
-                                                            is_processing = False
-                                                            return
-                                                        
-                                                        if parsed_scenes:
-                                                            # Generate all images in parallel
-                                                            scene_contents = [{"prompt": scene["prompt"], "orientation": scene["orientation"]} for scene in parsed_scenes]
-                                                            print(f"Generating {len(scene_contents)} images in parallel...")
-                                                            
-                                                            try:
-                                                                # Generate all images at once with timeout
-                                                                image_urls = await asyncio.wait_for(
-                                                                    chat_pipeline.image_generator.generate(scene_contents),
-                                                                    timeout=90  # 90 second timeout for all images
-                                                                )
-                                                            except asyncio.TimeoutError:
-                                                                ui.notify('Image generation timed out. Please try again.', color='warning')
-                                                                # Remove spinner
-                                                                chat_box.remove(regen_spinner_row)
-                                                                regenerate_button.props('loading=false')
-                                                                is_processing = False
-                                                                return
-                                                            except Exception as e:
-                                                                ui.notify(f'Error generating images: {str(e)}', color='negative')
-                                                                # Remove spinner
-                                                                chat_box.remove(regen_spinner_row)
-                                                                regenerate_button.props('loading=false')
-                                                                is_processing = False
-                                                                return
-                                                            
-                                                            # Remove spinner now that we have images
-                                                            try:
-                                                                chat_box.remove(regen_spinner_row)
-                                                            except Exception:
-                                                                # Already removed - ignore
-                                                                pass
-                                                            
-                                                            if image_urls and len(image_urls) > 0:
-                                                                # Clear existing images - use a safer approach
-                                                                # Instead of removing old elements, we'll just create a fresh expansion
-                                                                expansion_id = "regenerated_images_expansion"
-                                                                
-                                                                # Display regenerated images in a new expansion
-                                                                with ui.expansion('GENERATED IMAGES', icon='image').classes('w-full').props(f'id={expansion_id}'):
-                                                                    with ui.row().classes('flex-wrap gap-2 w-full'):
-                                                                        # Create a list of tuples with original tag, parsed scene, and image URL
-                                                                        image_data = list(zip(image_tags, parsed_scenes, image_urls))
-                                                                        # Sort by sequence number if available
-                                                                        image_data.sort(key=lambda x: x[1].get('sequence', 0) if isinstance(x[1], dict) else 0)
-                                                                        
-                                                                        for original_tag, scene, image_url in image_data:
-                                                                            if image_url:
-                                                                                with ui.card().classes('w-[120px] p-1 bg-gray-800'):
-                                                                                    # Extract UUID from URL path for image ID
-                                                                                    try:
-                                                                                        # Use a unique UUID instead of extracting from filename
-                                                                                        import uuid
-                                                                                        image_uuid = str(uuid.uuid4())
-                                                                                    except:
-                                                                                        # Fallback with a proper UUID
-                                                                                        import uuid
-                                                                                        image_uuid = str(uuid.uuid4())
-                                                                                    
-                                                                                    # Get scene prompt if available
-                                                                                    parsed_prompt = scene.get('prompt', '') if isinstance(scene, dict) else str(scene)
-                                                                                    
-                                                                                    # Add to lightbox with ID and prompts
-                                                                                    img = lightbox.add_image(
-                                                                                        thumb_url=image_url,
-                                                                                        orig_url=image_url,
-                                                                                        image_id=image_uuid,
-                                                                                        original_prompt=original_tag,
-                                                                                        parsed_prompt=parsed_prompt
-                                                                                    )
-                                                                                    img.classes('w-full rounded-lg cursor-pointer')
-                                                                                    
-                                                                                    with ui.row().classes('items-center justify-between w-full mt-1'):
-                                                                                        short_desc = original_tag[:30] + ("..." if len(original_tag) > 30 else original_tag)
-                                                                                        ui.label(short_desc).classes('text-xs italic text-gray-300 truncate max-w-[75%]')
-                                                                                        ui.button(icon='search', on_click=lambda url=image_url, tag=original_tag: show_image_details({"url": url, "description": tag}))\
-                                                                                            .props('flat dense round').classes('text-xs')
-                                                            else:
-                                                                ui.notify('Failed to generate images', color='negative')
-                                                        else:
-                                                            # Remove spinner
-                                                            chat_box.remove(regen_spinner_row)
-                                                            ui.notify('No visual scenes found in the response', color='warning')
-                                                    except Exception as e:
-                                                        ui.notify(f'Failed to generate images: {str(e)}', color='negative', timeout=5000)
-                                                    finally:
-                                                        # In case spinner wasn't removed in one of the error paths
-                                                        try:
-                                                            chat_box.remove(regen_spinner_row)
-                                                        except:
-                                                            pass
-                                                        regenerate_button.props('loading=false')
-                                                        is_processing = False
-                                                
-                                                regenerate_button.on('click', regenerate_images)
+                                    # Use the new display_message function
+                                    display_message(chat_box, response, memory_system)
+                                    
+                                    # Update the side panels with thoughts, mood, and appearance
+                                    if response.get("thoughts"):
+                                        thoughts_display.content = response["thoughts"][-1]  # Show most recent thought
+                                    
+                                    if response.get("mood"):
+                                        mood_display.content = response["mood"]
+                                    
+                                    if response.get("appearance"):
+                                        appearance_display.content = response["appearance"][-1]  # Show most recent appearance
+                                    
+                                    if response.get("clothing"):
+                                        clothing_display.content = response["clothing"][-1]  # Show most recent clothing
                                 
                             except asyncio.TimeoutError:
                                 # Handle timeout
-                                chat_box.remove(spinner_row)
+                                try:
+                                    chat_box.remove(spinner_row)
+                                except:
+                                    pass  # Ignore if spinner already removed
                                 with chat_box:
                                     ui.label("Sorry, I'm taking too long to respond. Please try again.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                                 ui.notify("Request timed out", color="negative")
                             except Exception as e:
                                 # Handle errors
-                                chat_box.remove(spinner_row)
+                                try:
+                                    chat_box.remove(spinner_row)
+                                except:
+                                    pass  # Ignore if spinner already removed
                                 with chat_box:
                                     ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                                 ui.notify(f"Error processing message: {str(e)}", color="negative")

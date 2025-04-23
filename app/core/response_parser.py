@@ -1,15 +1,78 @@
 import json
 import re
+import os
 from app.models.prompt_models import PromptManager, PromptType
 from app.utils.config import Config
 from app.utils.logger import Logger
 from enum import Enum
+import httpx
 
 class LLMProvider(Enum):
     LOCAL = "local"
     OPENROUTER = "openrouter"
 
 class ResponseParser:
+    @staticmethod
+    def _close_unclosed_tags(text: str) -> str:
+        """
+        Close any unclosed tags in the text. Tags are closed when encountering:
+        - A newline
+        - A new opening tag
+        - A period
+        - End of text
+        
+        Args:
+            text: The text to process
+            
+        Returns:
+            The text with all unclosed tags properly closed
+        """
+        # First, find all unique tags in the text
+        # This pattern matches any opening tag that starts with a letter and contains letters, numbers, or hyphens
+        tag_pattern = r'<([a-z][a-z0-9-]*)>'
+        tags = set(re.findall(tag_pattern, text))
+        
+        logger = Logger()
+        logger.debug(f"Found tags to process: {tags}")
+        
+        # Process each tag type
+        for tag in tags:
+            # First check if there are any unclosed tags by counting opening and closing tags
+            opening_tags = len(re.findall(f'<{tag}>', text))
+            closing_tags = len(re.findall(f'</{tag}>', text))
+            
+            if opening_tags <= closing_tags:
+                # All tags are properly closed, skip this tag type
+                continue
+                
+            # Pattern to find unclosed tags - matches opening tag not followed by closing tag
+            # until a newline, new opening tag, period, or end of text
+            pattern = f'<{tag}>(.*?)(?=<[a-z]+>|[.]|[\n]|$)'
+            
+            # Find all matches (there could be multiple unclosed tags)
+            index_shift = 0
+            for match in re.finditer(pattern, text, flags=re.DOTALL):
+                start_idx = match.start() + index_shift
+                end_idx = match.end() + index_shift
+                content = match.group(1)
+                
+                # Check if this tag is actually closed later in the text
+                remaining_text = text[end_idx:]
+                if f'</{tag}>' in remaining_text:
+                    # Tag is closed later, skip this one
+                    continue
+                
+                # Close the tag properly by inserting the closing tag
+                closing_tag = f'</{tag}>'
+                text = text[:end_idx] + closing_tag + text[end_idx:]
+                
+                # Update the index shift for subsequent matches
+                index_shift += len(closing_tag)
+                
+                logger.debug(f"Closed unclosed <{tag}> tag at position {start_idx}")
+        
+        return text
+
     @staticmethod
     def parse_response(response_text, current_appearance=None):
         """
@@ -22,6 +85,10 @@ class ResponseParser:
         logger = Logger()
         logger.info("Starting to parse response")
         logger.debug(f"Original response text: {response_text}")
+        
+        # First, close any unclosed tags
+        response_text = ResponseParser._close_unclosed_tags(response_text)
+        logger.debug(f"Response text after closing tags: {response_text}")
         
         # Initialize result structure
         result = {
@@ -120,14 +187,6 @@ class ResponseParser:
                 system_prompt = """You are a JSON parser that extracts structured information from AI responses.
 Your task is to extract thoughts, mood changes, and appearance updates from the text.
 
-YOU MUST RETURN VALID JSON in the following format:
-{
-  "main_text": "The cleaned response with all tags removed",
-  "thoughts": ["thought1", "thought2"],
-  "mood": "detected mood or null",
-  "appearance": ["action1", "action2"]
-}
-
 IMPORTANT RULES:
 
 1. Extract thoughts that are explicitly marked with <thought> tags
@@ -143,11 +202,7 @@ For mood detection:
 For appearance detection:
 - Look for descriptions of physical changes or actions
 - Include both explicit <appearance> tags and implicit descriptions
-- Consider the current appearance context
-
-The response MUST be valid JSON. Do not include any explanatory text, just return the JSON object.
-Do not include backticks, ```json markers, or "Here is the parsed response:" text.
-RETURN ONLY THE JSON OBJECT."""
+- Consider the current appearance context"""
 
             # Add current appearance if provided
             if current_appearance:
@@ -158,13 +213,21 @@ RETURN ONLY THE JSON OBJECT."""
                 {"role": "user", "content": f"{response_text}"}
             ]
 
+            # Load the response schema
+            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompts", "response_schema.json")
+            with open(schema_path, "r") as f:
+                response_schema = json.load(f)
+
             endpoint = f"{api_base}/chat/completions"
             payload = {
                 "model": parser_model,
                 "messages": messages,
                 "temperature": 0.2,
                 "max_tokens": 1024,
-                "response_format": {"type": "json_object"}
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": response_schema["schema"]
+                }
             }
 
             logger.debug(f"Response parser request to {endpoint}: {json.dumps(payload, indent=2)}")

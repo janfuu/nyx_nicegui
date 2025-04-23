@@ -1,0 +1,56 @@
+{
+    "name": "nyx_response",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Emotional tone of the response"
+        },
+        "thoughts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of internal thoughts"
+        },
+        "appearance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Physical traits or body details"
+        },
+        "clothing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Descriptions of clothing and accessories"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Scene descriptions for visual generation"
+        },
+        "main_text": {
+          "type": "string",
+          "description": "Full narrative text with tag markers replaced by [[tag]]"
+        }
+      },
+      "required": [
+        "main_text",
+        "thoughts",
+        "appearance",
+        "clothing",
+        "images"
+      ],
+      "additionalProperties": false
+    }
+  }

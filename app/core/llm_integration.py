@@ -70,6 +70,7 @@ class LLMIntegration:
                 "messages": messages,
                 "temperature": self.config.get("llm", "temperature", 0.8),
                 "max_tokens": self.config.get("llm", "max_tokens", 512),
+                "stop": ["<end_of_turn>"]
             }
         else:
             return {

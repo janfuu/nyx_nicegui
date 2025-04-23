@@ -37,7 +37,7 @@ class ChatPipeline:
         # Step 1: Get context
         self.logger.debug("Step 1: Getting context from memory system")
         try:
-            conversation_history = self.memory_system.get_recent_conversation(limit=10)
+            conversation_history = self.memory_system.get_recent_conversation(limit=20)
             current_mood = self.memory_system.get_current_mood()
             current_appearance = self.memory_system.get_recent_appearances(1)
             world_state = self.world_manager.get_current_state()
@@ -104,13 +104,22 @@ class ChatPipeline:
         # Step 4: Parse response for tags
         self.logger.debug("Step 4: Parsing response for special tags")
         try:
-            parsed_content = ResponseParser.parse_response(
+            parsed_content = ResponseParser._llm_parse(
                 llm_response,
                 current_appearance=current_appearance[0]["description"] if current_appearance else None
             )
+            if not parsed_content:
+                self.logger.error("LLM parser failed to parse response")
+                return {
+                    "text": "I'm having trouble processing my response. Please try again.",
+                    "error": True
+                }
         except Exception as e:
             self.logger.error(f"Error parsing response: {str(e)}")
-            parsed_content = {"text": llm_response}  # Fallback to raw response
+            return {
+                "text": "I'm having trouble processing my response. Please try again.",
+                "error": True
+            }
         
         # Log what was extracted in detail
         self.logger.debug(f"Parsed content: {json.dumps(parsed_content, indent=2)}")
@@ -127,16 +136,13 @@ class ChatPipeline:
         # Process appearance changes
         if parsed_content.get("appearance"):
             for change in parsed_content["appearance"]:
-                # Store appearance changes in both appearance history and as changes
-                self.memory_system.add_appearance(change)  # Store in main appearance table
-                self.memory_system.add_appearance_change(change)  # Store as a change if this method exists
+                self.memory_system.add_appearance(change)
             self.logger.info(f"Added {len(parsed_content['appearance'])} appearance changes")
         
         # Process clothing changes
         if parsed_content.get("clothing"):
             for change in parsed_content["clothing"]:
-                self.memory_system.add_clothing(change)  # Store in clothing table
-                self.memory_system.add_clothing_change(change)  # Store as a change if this method exists
+                self.memory_system.add_clothing(change)
             self.logger.info(f"Added {len(parsed_content['clothing'])} clothing changes")
         
         # Process location changes
@@ -148,7 +154,7 @@ class ChatPipeline:
         self.logger.debug("Step 5: Storing conversation in memory")
         try:
             self.memory_system.add_conversation_entry("user", user_message)
-            self.memory_system.add_conversation_entry("assistant", llm_response)
+            self.memory_system.add_conversation_entry("assistant", parsed_content["main_text"])
         except Exception as e:
             self.logger.error(f"Error storing conversation: {str(e)}")
             # Continue execution even if storage fails
@@ -159,23 +165,15 @@ class ChatPipeline:
             # Process thoughts
             for thought in parsed_content.get("thoughts", []):
                 self.memory_system.add_thought(thought)
-            
-            # Process self tags
-            if parsed_content.get("self"):
-                self.logger.info(f"Extracted {len(parsed_content['self'])} self actions")
-                for self_action in parsed_content["self"]:
-                    self.memory_system.add_appearance(self_action)
-                    self.logger.debug(f"Added appearance: {self_action[:50]}...")
         except Exception as e:
             self.logger.error(f"Error processing response elements: {str(e)}")
             # Continue execution even if processing fails
         
         # Step 7: Generate images with timeout
-        self.logger.debug("Step 7: Checking for image tags and generating images")
+        self.logger.debug("Step 7: Processing images from response")
         generated_images = []
-        image_tags = self._extract_image_tags(llm_response)
         
-        if image_tags:
+        if parsed_content.get("images"):
             try:
                 # IMPORTANT: Re-fetch all character state AFTER processing the response elements
                 # This ensures we use the UPDATED state for image generation
@@ -197,7 +195,7 @@ class ChatPipeline:
                     "mood": current_mood,
                     "clothing": current_clothing_text,
                     "location": current_location_text,
-                    "images": [{"content": tag["content"], "sequence": tag["sequence"]} for tag in image_tags]
+                    "images": [{"content": content, "sequence": i+1} for i, content in enumerate(parsed_content["images"])]
                 }
                 
                 # Parse scenes with async method
@@ -225,33 +223,29 @@ class ChatPipeline:
                     # Process results
                     for i, image_url in enumerate(image_urls):
                         if image_url:
-                            sequence = image_tags[i]["sequence"] if i < len(image_tags) else i + 1
-                            # Extract UUID from URL or response
-                            # Example URL: https://im.runware.ai/image/ws/2/ii/5284da1a-25a9-458c-a681-4043f2a8057c.jpg
+                            # Get the sequence number from the frame field if present, otherwise use index + 1
+                            sequence = scene_contents[i].get("frame", i + 1)
                             try:
-                                # Try to extract UUID from the URL path
                                 image_uuid = image_url.split('/')[-1].split('.')[0]
                             except:
-                                # Fallback to timestamp-based ID
                                 image_uuid = f"img_{int(time.time())}_{i}"
                             
-                            # Get the original image content from image_tags if available
+                            # Get the original content from the corresponding input image
                             original_content = ""
-                            if i < len(image_tags):
-                                original_content = image_tags[i]["content"]
-                                
+                            if i < len(parsed_content["images"]):
+                                original_content = parsed_content["images"][i]
+                            
                             generated_images.append({
                                 "url": image_url,
                                 "description": scene_contents[i].get("content", scene_contents[i].get("prompt", "Generated image")),
                                 "id": image_uuid,
-                                "sequence": sequence
+                                "sequence": sequence,
+                                "original_text": scene_contents[i].get("original_text", "")
                             })
                             
-                            # Prepare scene data with original content
                             scene_data = scene_contents[i].copy() if isinstance(scene_contents[i], dict) else {"prompt": scene_contents[i]}
-                            scene_data["original_content"] = original_content
+                            scene_data["original_content"] = scene_contents[i].get("original_text", "")
                             
-                            # Offload vector embedding + Qdrant storage
                             asyncio.create_task(
                                 self._process_image_for_qdrant(
                                     scene_data=scene_data,
@@ -262,8 +256,6 @@ class ChatPipeline:
                                     image_id=image_uuid
                                 )
                             )
-
-                        
                 
                 # Sort images by sequence number
                 generated_images.sort(key=lambda x: x["sequence"])
@@ -274,7 +266,7 @@ class ChatPipeline:
         # Return the response with images if they were generated
         self.logger.info("Message processing complete")
         return {
-            "text": llm_response,
+            "text": parsed_content["main_text"],
             "thoughts": parsed_content.get("thoughts", []),
             "mood": parsed_content.get("mood"),
             "images": generated_images if generated_images else None

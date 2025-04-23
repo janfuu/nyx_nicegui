@@ -27,7 +27,7 @@ class MemorySystem:
         conn.commit()
         return cursor.lastrowid
     
-    def get_recent_conversation(self, limit=10):
+    def get_recent_conversation(self, limit=20):
         """Get recent conversation turns"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
