@@ -7,7 +7,18 @@ class StateManager:
     StateManager handles character state as a simple key-value store with persistence.
     This provides a cleaner, more flexible approach than individual database tables.
     """
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(StateManager, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
+        if self._initialized:
+            return
+            
         self.db = Database()
         self.logger = Logger()
         self._state = {
@@ -17,6 +28,7 @@ class StateManager:
             "location": "cyberpunk apartment interior at night... synthwave color palette"
         }
         self._load_from_db()
+        self._initialized = True
     
     def _load_from_db(self):
         """Load the latest state from database"""

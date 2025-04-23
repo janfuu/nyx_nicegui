@@ -2,7 +2,7 @@ from app.models.database import Database
 from app.models.prompt_models import PromptManager
 from app.core.state_manager import StateManager
 from app.services.qdrant_memory_store import QdrantMemoryStore
-from app.services.embedding_service import Embedder
+from app.services.embedder import get_embedder
 import json
 import time
 import sqlite3
@@ -14,7 +14,7 @@ class MemorySystem:
         self.db = Database()
         self.state_manager = StateManager()  # Use the new state manager
         self.qdrant_memory = QdrantMemoryStore()
-        self.embedder = Embedder()
+        self.embedder = get_embedder()  # Use the global embedder instance
         self.appearance_changes = []
         self.location = None
         self.thoughts = []

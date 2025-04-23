@@ -9,7 +9,18 @@ import time
 from datetime import datetime
 
 class QdrantMemoryStore:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(QdrantMemoryStore, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
+        if self._initialized:
+            return
+            
         config = Config()
         self.logger = Logger()
         self.host = config.get("qdrant", "host", "localhost")
@@ -25,6 +36,7 @@ class QdrantMemoryStore:
         
         self.client = QdrantClient(host=self.host, port=self.port)
         self._ensure_collection()
+        self._initialized = True
 
     def _ensure_collection(self):
         collections_list = [c.name for c in self.client.get_collections().collections]

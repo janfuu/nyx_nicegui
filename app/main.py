@@ -36,17 +36,8 @@ from .services.chat_pipeline import ChatPipeline
 # Import Qdrant initialization
 from .utils.qdrant_init import initialize_qdrant
 
-# Create singleton for embedding service
-from .services.embedding_service import Embedder
-# Global embedder instance that will be initialized once
-_embedder_instance = None
-
-# Getter for the embedder that initializes it if needed
-def get_embedder():
-    global _embedder_instance
-    if _embedder_instance is None:
-        _embedder_instance = Embedder()
-    return _embedder_instance
+# Import embedder from new module
+from .services.embedder import get_embedder
 
 # Initialize database
 db = Database()
@@ -76,7 +67,6 @@ chat_pipeline = ChatPipeline()
 
 # Initialize embedder and Qdrant at startup
 async def _initialize_services():
-    global _embedder_instance
     print("Starting initialization of embedding models and services...")
     
     # Initialize Qdrant collections
@@ -91,13 +81,11 @@ async def _initialize_services():
     
     # Initialize the embedding model (CLIP)
     try:
-        _embedder_instance = Embedder()
         # Test with a simple embedding to make sure everything is loaded
-        _ = _embedder_instance.embed_prompt("Test embedding initialization")
+        _ = get_embedder().embed_prompt("Test embedding initialization")
         print("Embedding models loaded successfully")
     except Exception as e:
         print(f"Error initializing embedding models: {str(e)}")
-        _embedder_instance = None
 
 # Register startup handler only when running this file directly
 def setup_startup_handler():
