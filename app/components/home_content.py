@@ -510,7 +510,7 @@ def content() -> None:
                             spinner_row = ui.row().classes('w-full justify-center my-4')
                             with spinner_row:
                                 ui.spinner('dots', size='lg', color='primary')
-                                ui.label('Thinking...').classes('text-gray-400 ml-2')
+                                phase_label = ui.label('Thinking...').classes('text-gray-400 ml-2')
                         
                         # Ensure UI updates before continuing
                         ui.update()
@@ -623,139 +623,117 @@ def content() -> None:
                                     
                                     response = mock_response
                                 else:
+                                    # Update phase to "Generating response..."
+                                    phase_label.text = "Generating response..."
+                                    ui.update()
+                                    
                                     # Get LLM response with timeout in normal mode
                                     response = await asyncio.wait_for(
                                         chat_pipeline.process_message(current_message),
-                                        timeout=90  # 90 second timeout for LLM response
+                                        timeout=120  # Increased timeout to 120 seconds
                                     )
                                     
-                                    # Ensure mood, thoughts, and appearance are properly processed
-                                    # The chat_pipeline should handle this, but let's make sure
+                                    # Update phase to "Processing response..."
+                                    phase_label.text = "Processing response..."
+                                    ui.update()
+                                    
+                                    # Display the raw response immediately
+                                    with chat_box:
+                                        # Remove the spinner row
+                                        chat_box.remove(spinner_row)
+                                        
+                                        # Create a temporary response card
+                                        temp_response = ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500')
+                                        with temp_response:
+                                            ui.markdown(response['text']).classes('text-white')
+                                        
+                                        # Add a processing indicator
+                                        processing_row = ui.row().classes('w-full justify-center my-2')
+                                        with processing_row:
+                                            ui.spinner('dots', size='sm', color='primary')
+                                            ui.label('Processing images and state updates...').classes('text-gray-400 ml-2')
+                                    
+                                    # Update phase to "Processing images..."
+                                    phase_label.text = "Processing images..."
+                                    ui.update()
+                                    
+                                    # Process images and state updates
+                                    if response.get("images"):
+                                        # Process images directly instead of in a separate function
+                                        for image_data in response["images"]:
+                                            if isinstance(image_data, dict) and "url" in image_data:
+                                                try:
+                                                    # Add image to lightbox
+                                                    lightbox.add_image(
+                                                        thumb_url=image_data["url"],
+                                                        orig_url=image_data["url"],
+                                                        image_id=image_data.get("id", str(uuid.uuid4())),
+                                                        original_prompt=image_data.get("original_prompt", ""),
+                                                        parsed_prompt=image_data.get("parsed_prompt", "")
+                                                    )
+                                                except Exception as e:
+                                                    print(f"Error processing image: {str(e)}")
+                                    
+                                    # Update state displays
                                     if response.get("mood"):
                                         memory_system.update_mood(response["mood"])
+                                        mood_display.content = response["mood"]
                                     
                                     if response.get("thoughts"):
                                         for thought in response["thoughts"]:
                                             memory_system.add_thought(thought)
+                                        thoughts_display.content = response["thoughts"][-1]
                                     
                                     if response.get("appearance"):
-                                        # First update display with the latest appearance from the response
                                         last_appearance = response["appearance"][-1]
                                         appearance_display.content = last_appearance
-                                        has_appearance_update = True
-                                        
-                                        # Store appearances in the database - this should already be handled by chat_pipeline
-                                        # but let's make sure that our UI reflects the changes
                                         for appearance in response["appearance"]:
                                             memory_system.add_appearance(appearance)
-                                        
-                                        # Force a UI update to ensure the appearance display is refreshed
-                                        ui.update()
-                                    else:
-                                        # Check for unclosed appearance tags and close them
-                                        # First fix the response text by closing any unclosed tags
-                                        appearance_content = re.findall(r'<appearance>(.*?)</appearance>', response['text'], re.DOTALL)
-                                        if appearance_content:
-                                            for appearance in appearance_content:
-                                                # Check if this is a meaningful non-empty appearance update
-                                                if appearance.strip():
-                                                    memory_system.add_appearance(appearance.strip())
-                                                    appearance_display.content = appearance.strip()
-                                                    has_appearance_update = True
-                                        else:
-                                            has_appearance_update = False
                                     
                                     if response.get("clothing"):
-                                        # Get the last clothing entry (most recent)
                                         last_clothing = response["clothing"][-1]
-                                        print(f"Updating clothing display with: '{last_clothing}'")
                                         clothing_display.content = last_clothing
-                                        has_clothing_update = True
-                                        
-                                        # Store clothing in the database
                                         for clothing in response["clothing"]:
                                             memory_system.add_clothing(clothing)
+                                    
+                                    # Update phase to "Finalizing..."
+                                    phase_label.text = "Finalizing..."
+                                    ui.update()
+                                    
+                                    # Replace temporary response with final processed version
+                                    with chat_box:
+                                        # Remove temporary response and processing indicator
+                                        chat_box.remove(temp_response)
+                                        chat_box.remove(processing_row)
                                         
-                                        # Force a UI update to ensure the clothing display is refreshed
-                                        ui.update()
-                                    else:
-                                        # Look for properly closed clothing tags
-                                        clothing_content = re.findall(r'<clothing>(.*?)</clothing>', response['text'], re.DOTALL)
-                                        if clothing_content:
-                                            for clothing in clothing_content:
-                                                # Check if this is a meaningful non-empty clothing update
-                                                if clothing.strip():
-                                                    memory_system.add_clothing(clothing.strip())
-                                                    clothing_display.content = clothing.strip()
-                                                    has_clothing_update = True
-                                        else:
-                                            has_clothing_update = False
-                                
-                                if response.get("location"):
-                                    has_location_update = True
-                                    # Get the current location from database to ensure UI is in sync
-                                    current_locations = memory_system.get_recent_locations(1)
-                                    if current_locations and location_desc:
-                                        location_desc.content = current_locations[0]["description"]
-                                else:
-                                    has_location_update = False
-                                
-                                # Final check to ensure UI displays are in sync with database state
-                                # This ensures any state changes applied by the pipeline are reflected in the UI
-                                current_appearances = memory_system.get_recent_appearances(1)
-                                if current_appearances:
-                                    appearance_display.content = current_appearances[0]["description"]
+                                        # Display final processed response
+                                        display_message(chat_box, response, memory_system)
                                     
-                                current_clothing = memory_system.get_recent_clothing(1)
-                                if current_clothing:
-                                    clothing_display.content = current_clothing[0]["description"]
-                                
-                                # Display assistant response with original formatting
-                                with chat_box:
-                                    # Remove the spinner row before showing the response
-                                    chat_box.remove(spinner_row)
+                                    # Update phase to "Done"
+                                    phase_label.text = "Done"
+                                    ui.update()
                                     
-                                    # Use the new display_message function
-                                    display_message(chat_box, response, memory_system)
-                                    
-                                    # Update the side panels with thoughts, mood, and appearance
-                                    if response.get("thoughts"):
-                                        thoughts_display.content = response["thoughts"][-1]  # Show most recent thought
-                                    
-                                    if response.get("mood"):
-                                        mood_display.content = response["mood"]
-                                    
-                                    if response.get("appearance"):
-                                        appearance_display.content = response["appearance"][-1]  # Show most recent appearance
-                                    
-                                    if response.get("clothing"):
-                                        clothing_display.content = response["clothing"][-1]  # Show most recent clothing
-                                
                             except asyncio.TimeoutError:
-                                # Handle timeout
+                                # Handle timeout by showing the partial response if available
                                 try:
                                     chat_box.remove(spinner_row)
                                 except:
-                                    pass  # Ignore if spinner already removed
+                                    pass
                                 with chat_box:
-                                    ui.label("Sorry, I'm taking too long to respond. Please try again.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
-                                # Move notification to main thread
-                                ui.timer(0.1, lambda: ui.notify("Request timed out", color="negative"), once=True)
+                                    if 'response' in locals():
+                                        # Show whatever response we got before timeout
+                                        display_message(chat_box, response, memory_system)
+                                    else:
+                                        ui.label("Response generation timed out. Please try a shorter message.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                             except Exception as e:
-                                # Handle errors
                                 try:
                                     chat_box.remove(spinner_row)
                                 except:
-                                    pass  # Ignore if spinner already removed
+                                    pass
                                 with chat_box:
                                     ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
-                                # Move notification to main thread
-                                ui.timer(0.1, lambda: ui.notify(f"Error processing message: {str(e)}", color="negative"), once=True)
-                                    
                             finally:
-                                # Re-enable the send button
                                 send_button.props('disabled=false')
-                                # Reset processing flag
                                 is_processing = False
                         
                         # Start the async processing as a background task

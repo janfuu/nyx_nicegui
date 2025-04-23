@@ -73,9 +73,9 @@ image_generation:
   prompt_weighting: sdEmbeds
   default_negative_prompt: "" #score_6, score_5, score_4, text, censored, deformed, bad hand, watermark
   
-  # Prompt prefix and suffix
+  # Prompt prefix and suffix, NOTE the comma is important!
   prompt_pre: "Cinematic photo ,"
-  prompt_post: "Expressiveh"
+  prompt_post: ", Expressiveh"
   
   # LoRA Models Configuration
   # Each LoRA entry should have a model ID and weight value
