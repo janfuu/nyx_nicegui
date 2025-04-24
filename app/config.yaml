@@ -43,7 +43,7 @@ qdrant:
       distance: cosine
     memories:
       name: nyx_memories
-      vector_size: 1536
+      vector_size: 768
       distance: cosine
 
 image_generation:

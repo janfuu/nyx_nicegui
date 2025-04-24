@@ -1,7 +1,9 @@
 from nicegui import ui, app
 from random import random
 from app.core.memory_system import MemorySystem
+from app.core.response_parser import ResponseParser
 import json
+import time
 
 def content() -> None:
     # Initialize memory system
@@ -187,6 +189,83 @@ Common state keys include:
 - `location`: Current location description
 
 You can also add custom state values as needed.""").classes('text-sm mt-4')
+                
+                # Database Migration Section
+                ui.separator()
+                with ui.card().classes('w-full'):
+                    ui.markdown("**Database Migration**")
+                    ui.markdown("Migrate existing database content to Qdrant memory store").classes('text-sm')
+                    
+                    # Add progress indicator
+                    progress = ui.linear_progress(0).classes('w-full')
+                    status = ui.label('Ready to migrate...')
+                    
+                    async def migrate_to_qdrant():
+                        try:
+                            # Get all conversations from database
+                            conversations = memory_system.get_recent_conversation(1000)  # Get a large number to ensure we get all
+                            total = len(conversations)
+                            processed = 0
+                            
+                            # Process each conversation through the parser
+                            for conversation in conversations:
+                                if conversation["role"] == "assistant":
+                                    # Update progress
+                                    processed += 1
+                                    progress.value = processed / total
+                                    status.set_text(f'Processing conversation {processed}/{total}...')
+                                    await ui.run_javascript('void(0)')  # Keep UI alive
+                                    
+                                    # Parse the response to extract memories and other fields
+                                    parsed_content = await ResponseParser._llm_parse(conversation["content"])
+                                    
+                                    # Extract mood from the text if present
+                                    mood = "neutral"  # default mood
+                                    if "<mood>" in conversation["content"]:
+                                        mood_start = conversation["content"].find("<mood>") + len("<mood>")
+                                        mood_end = conversation["content"].find("</mood>", mood_start)
+                                        if mood_end != -1:
+                                            mood = conversation["content"][mood_start:mood_end].strip()
+                                    
+                                    # Store the entire conversation as a memory
+                                    memory = {
+                                        "text": conversation["content"],
+                                        "type": "chat",
+                                        "mood": mood,
+                                        "tags": ["first love", "initial conversation"],
+                                        "timestamp": conversation.get("timestamp", time.time())
+                                    }
+                                    
+                                    # Get embedding vector for the memory using the text model
+                                    vector = memory_system.embedder.text_model.encode(memory["text"]).tolist()
+                                    
+                                    # Store in Qdrant
+                                    await memory_system.qdrant_memory.store_memory(
+                                        text=memory["text"],
+                                        vector=vector,
+                                        memory_type=memory["type"],
+                                        mood=memory["mood"],
+                                        mood_vector=memory_system.embedder.embed_prompt(memory["mood"]) if memory["mood"] else None,
+                                        tags=memory["tags"]
+                                    )
+                                    
+                                    # Store thoughts in Qdrant
+                                    if parsed_content.get("thoughts"):
+                                        for thought in parsed_content["thoughts"]:
+                                            memory_system.add_thought(
+                                                content=thought,
+                                                importance=5  # Default importance level
+                                            )
+                            
+                            progress.value = 1.0
+                            status.set_text('Migration complete!')
+                            ui.notify('Successfully migrated conversations to Qdrant', color='positive')
+                        except Exception as e:
+                            progress.value = 0.0
+                            status.set_text('Migration failed!')
+                            ui.notify(f'Error during migration: {str(e)}', color='negative')
+                    
+                    ui.button('Migrate Database to Qdrant', on_click=lambda: migrate_to_qdrant()).props('color=primary')
     
     ui.separator()
     

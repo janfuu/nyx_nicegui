@@ -50,7 +50,7 @@ class MemorySystem:
     def add_thought(self, content, importance=5, embedding=None):
         """Add an extracted thought with importance level"""
         try:
-            vector = self.embedder.embed_prompt(content).tolist()
+            vector = self.embedder.embed_prompt(content)
             asyncio.create_task(self.qdrant_memory.store_memory(
                 text=content,
                 vector=vector,

@@ -1,100 +1,109 @@
-# 🧠 Nyx System & UI Update Summary
+# ⚔️ Nyx Refactor Battle Plan  
+**Codename:** *Reflective Streaming + Structured Psyche*
 
-This document summarizes all recent changes made to Nyx's tag structure, parsing, output format, and UI integration model.
+## 🧠 Goals
+Build a modular, emotionally reactive, psychologically layered character loop for Nyx.  
+Enable real-time streaming with delayed reflection, memory surfacing, and relationship modeling.
 
 ---
 
-## 🔧 Structural Changes to Response Format
+## 🥇 Objective 1: **Streaming Mode**
+> Let Nyx speak instantly — then think.
 
-### ✅ New JSON Response Format
+### ✅ Goals
+- Stream LLM tokens as they arrive (for real-time UI)
+- Buffer full response for post-processing
+- Replace/enhance response in UI once parsed
 
-Nyx’s responses are now parsed into the following strict format:
+### ✅ Tasks
+- [ ] Introduce `ResponseSession` object to buffer tokens
+- [ ] Refactor `chat_pipeline.process_message()` to stream output
+- [ ] Run `response_parser` + `soul_processor` after stream ends
+- [ ] UI: display parsed result (e.g. `main_text`) and tags after stream
 
-```json
-{
-  "mood": "string | null",
-  "thoughts": ["array of strings"],
-  "appearance": ["array of strings"],
-  "clothing": ["array of strings"],
-  "images": ["array of strings"],
-  "main_text": "string with [[tag]] markers"
-}
+---
+
+## 🥈 Objective 2: **Parallel Image Scene Parser**
+> Let her dream in pictures — on her own time.
+
+### ✅ Goals
+- Decouple image generation from `ResponseParser`
+- Feed **raw Nyx response** to `image_scene_parser`
+- Let it extract `<image>` tags directly
+- Run in parallel to soul processing
+
+### ✅ Tasks
+- [ ] On LLM response completion, pass raw text to `image_scene_parser`
+- [ ] Trigger image generation asynchronously (`asyncio.create_task`)
+- [ ] Link generated image metadata to memory store + UI
+- [ ] Show placeholders if image is delayed
+
+---
+
+## 🥉 Objective 3: **Expand ResponseParser to Soul Mediator**
+> Turn parsing into memory generation and psychological inference.
+
+### ✅ Goals
+- Add new fields to `ResponseParser`:
+  - `relationships`: e.g. `"VIOLATES", "EXPRESSES", "REINFORCES"`
+  - `generated_memories`: insight fragments
+- Store new memories and inferred structure via:
+  - Qdrant (semantic memory)
+  - Neo4j (concept graph)
+  - WorkingMemoryBuffer (for next-turn injection)
+
+### ✅ Tasks
+- [ ] Expand system prompt for `ResponseParser`
+- [ ] Support new schema fields in JSON output
+- [ ] Store new memories into Qdrant
+- [ ] Update graph using relationship info
+
+---
+
+## 🧩 Objective 4: **Neo4j Integration (Graph Store)**
+> Memories don’t float — they relate.
+
+### ✅ Goals
+- Insert structured relationships between:
+  - `Memory` ↔ `Value`, `Emotion`, `Pattern`
+  - `Value` ↔ `Value` (conflicts)
+- Enable soul traversal queries
+
+### ✅ Tasks
+- [ ] Add `graph_store.py` or `neo4j_handler.py`
+- [ ] Create `add_node`, `add_relationship` helpers
+- [ ] Wire into post-response step
+- [ ] Optional: visualize relationship graph per memory
+
+---
+
+## 🔄 Pipeline Overview (Post-Refactor)
+
+```text
+[ User Message ]
+       ↓
+[ Context Injection ]
+       ↓
+[ Nyx (streamed LLM output) ]
+       ↓
+[ ResponseSession: buffers full output ]
+       ↓
+→ [ stream tokens to UI ]
+→ [ parse tags, mood, thoughts ]
+→ [ soul_processor: adds insights, triggers memories ]
+→ [ graph_store: creates or updates nodes/edges ]
+→ [ image_scene_parser (async): extracts and generates ]
+→ [ update UI with parsed + reflected content ]
 ```
 
-📄 Schema file: `response_schema.json`
-
 ---
 
-## 🖼️ UI-Specific Changes
+## 💡 Implementation Strategy
 
-### 🆕 `main_text` Uses `[[tag]]` Placeholders
+| Phase | Objectives |
+|-------|------------|
+| Phase 1 | ✅ Streaming Mode + `ResponseSession` |
+| Phase 2 | ✅ Parallel Image Scene Parser |
+| Phase 3 | ✅ Expanded ResponseParser |
+| Phase 4 | ✅ Neo4j Integration |
 
-| Marker        | Meaning                         | Suggested UI Behavior         |
-|---------------|----------------------------------|-------------------------------|
-| `[[mood]]`     | Mood update                    | Mood icon or color pulse      |
-| `[[thought]]`  | Internal voice                 | Italic bubble or side tag     |
-| `[[appearance]]` | Physical state update        | Avatar refresh or fade        |
-| `[[clothing]]` | Outfit description             | Outfit HUD update or preview  |
-| `[[image]]`    | Visual moment prompt           | Scene thumbnail or toggle     |
-| `[[fantasy]]`, `[[desire]]`, etc. | Advanced emotional/mental tags | Expandable thought UI         |
-
-These markers are **injected by the parser**, not shown in Nyx’s raw reply.
-
----
-
-## 💬 Tagging Guidelines for Nyx
-
-- Tags can be closed with either `</tag>` or `</>`
-- Tags should be visually descriptive, not narrative
-- `<clothing>` and `<appearance>` should not include action
-- Use one tag of each type per message, unless transitioning state
-- Advanced tags supported:
-  - `<fantasy>` — mental scenario
-  - `<secret>` — hidden thought
-  - `<memory>` — past recall
-  - `<desire>` — inner yearning
-
-📄 Updated LLM instruction: `instructions_updated_v4.yaml`
-
----
-
-## 🧠 System + Parser Changes
-
-### ✅ `response_parser.py`
-
-- Supports malformed or incomplete tags
-- Injects `[[tag]]` for UI icons
-- Returns strict JSON conforming to `response_schema.json`
-- Now uses `response_format: json_schema` with OpenRouter
-- Supports universal closing tag: `</>`
-
-📄 Parser config: `response_parser_strict_v2.yaml`
-
----
-
-## 🎥 Image Scene Parser
-
-- Supports splitting multi-action `<image>` blocks into multiple frames
-- Frames have positional continuity and inferred orientation
-- Used for dynamic image rendering via Stable Diffusion
-- NOTE: This needs to be updated to use structured output, and return the original prompt together with the generator prompt
-
-📄 Updated prompt: `image_scene_parser_updated.yaml`
-
-
----
-
-## ✅ UI Integration To-Do
-
-### Parsing & Display:
-- Parse `main_text` → display with inline icons using `[[tag]]`
-- Side panels → populated directly from JSON keys
-- Only animate changes when value actually differs from last turn
-
-### Optional Enhancements:
-- Use `hover`, `expand`, or `fade` effects to reflect emotional depth
-- Allow toggling between raw prose and structured UI mode (developer view?)
-
----
-
-Let me know if you'd like this exported as a developer doc, or if we need a frontend mock to go with it.
