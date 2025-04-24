@@ -364,7 +364,7 @@ def content() -> None:
     
     # Get initial state from database
     initial_mood = memory_system.get_current_mood()
-    initial_thoughts = memory_system.get_recent_thoughts(1)
+    initial_thought = memory_system.state_manager.get_current_thought()
     initial_appearances = memory_system.get_recent_appearances(1)
     initial_clothing = memory_system.get_recent_clothing(1)
     
@@ -440,7 +440,6 @@ def content() -> None:
                 # Character's thoughts display
                 ui.label('THOUGHTS').classes('text-gray-500 text-sm')
                 with ui.card().classes('bg-[#1a1a1a] p-3 rounded w-full'):
-                    initial_thought = initial_thoughts[0]["content"] if initial_thoughts else "It's... unusual to be addressed so familiarly..."
                     thoughts_display = ui.markdown(initial_thought).classes('text-sm')
 
         # Center Card
@@ -653,7 +652,8 @@ def content() -> None:
                                     if mock_response.get("thoughts"):
                                         for thought in mock_response["thoughts"]:
                                             memory_system.add_thought(thought)
-                                        thoughts_display.content = mock_response["thoughts"][-1]
+                                            # Update display with the current thought from state manager
+                                            thoughts_display.content = memory_system.state_manager.get_current_thought()
                                     
                                     if mock_response.get("appearance"):
                                         last_appearance = mock_response["appearance"][-1]

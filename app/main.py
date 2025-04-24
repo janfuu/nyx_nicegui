@@ -6,6 +6,7 @@ from nicegui import app, ui
 import asyncio
 import logging
 import yaml
+from fastapi.responses import JSONResponse
 
 # Set up logging
 logging.basicConfig(
@@ -35,7 +36,7 @@ from .services.chat_pipeline import ChatPipeline
 
 # Import Qdrant initialization
 from .utils.qdrant_init import initialize_qdrant
-from .services.embedding_service import Embedder
+from .services.embedder import get_embedder
 
 # Initialize database
 db = Database()
@@ -80,17 +81,16 @@ async def _initialize_services():
     # Initialize the embedding model (CLIP)
     try:
         # Test with a simple embedding to make sure everything is loaded
-        embedder = Embedder()
+        embedder = get_embedder()
         _ = embedder.embed_prompt("Test embedding initialization")
         print("Embedding models loaded successfully")
     except Exception as e:
         print(f"Error initializing embedding models: {str(e)}")
 
-# Register startup handler only when running this file directly
-def setup_startup_handler():
-    @app.on_startup
-    async def startup():
-        await _initialize_services()
+# Register startup handler
+@app.on_startup
+async def startup():
+    await _initialize_services()
 
 @app.post('/api/process_message')
 async def process_message(request):
@@ -180,7 +180,7 @@ async def custom_exception_handler(request, exc):
         'connection already closed'
     ]):
         # Just return a response without logging for common disconnection errors
-        return app.response_class(
+        return JSONResponse(
             content={"error": "WebSocket disconnected"},
             status_code=500
         )
@@ -190,19 +190,12 @@ async def custom_exception_handler(request, exc):
     logger.error(traceback.format_exc())
     
     # Return a response to prevent connection loss
-    return app.response_class(
+    return JSONResponse(
         content={"error": "An internal error occurred"},
         status_code=500
     )
 
-# Only register the startup handler if this file is run directly
 if __name__ in {"__main__", "__mp_main__"}:
-    # Setup startup handler
-    setup_startup_handler()
-    
-    # Initialize services manually when running as a module
-    asyncio.run(_initialize_services())
-    
     # For dev
     ui.run(
         storage_secret="myStorageSecret", 

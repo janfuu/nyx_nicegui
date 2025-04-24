@@ -1,33 +1,81 @@
+"""
+Response Parser
+=============
+
+This module implements the response parsing system that handles:
+1. Converting LLM responses into structured data
+2. Extracting thoughts, mood, and appearance changes
+3. Managing state context and updates
+4. Validating and formatting parsed responses
+
+The system provides:
+- LLM-based response parsing with state context
+- Structured data extraction
+- Multiple provider support (OpenRouter, Local)
+- JSON schema validation
+- Error handling and logging
+
+Key Features:
+- State-aware parsing
+- Flexible input handling
+- Schema validation
+- Provider abstraction
+- Response cleanup and formatting
+"""
+
 import json
 import re
 import os
 from app.models.prompt_models import PromptManager, PromptType
 from app.utils.config import Config
 from app.utils.logger import Logger
+from app.core.state_manager import StateManager
 from enum import Enum
 import httpx
 import jsonschema
 from pathlib import Path
 
 class LLMProvider(Enum):
+    """
+    Supported LLM providers for response parsing.
+    
+    This enum defines the available providers:
+    - LOCAL: Local LLM instance
+    - OPENROUTER: OpenRouter API service
+    """
     LOCAL = "local"
     OPENROUTER = "openrouter"
 
 class ResponseParser:
+    """
+    Response parser that converts LLM responses into structured data.
+    
+    This class handles:
+    1. Parsing text responses into structured formats
+    2. Extracting thoughts, mood, and appearance changes
+    3. Managing state context and updates
+    4. Validating and formatting responses
+    
+    The parser uses an LLM to generate detailed, structured output
+    that includes state context and extracted information.
+    """
+    
     @staticmethod
     def _close_unclosed_tags(text: str) -> str:
         """
-        Close any unclosed tags in the text. Tags are closed when encountering:
-        - A newline
-        - A new opening tag
-        - A period
-        - End of text
+        Close any unclosed tags in the text.
         
         Args:
             text: The text to process
             
         Returns:
-            The text with all unclosed tags properly closed
+            str: The text with all unclosed tags properly closed
+            
+        This method:
+        1. Finds all unique tags in the text
+        2. Checks for unclosed tags
+        3. Closes tags at appropriate boundaries
+        4. Handles nested and overlapping tags
         """
         # First, find all unique tags in the text
         # This pattern matches any opening tag that starts with a letter and contains letters, numbers, or hyphens
@@ -82,13 +130,19 @@ class ResponseParser:
         Please use _llm_parse instead for better tag handling and context awareness.
         
         Parse a response text and extract structured information.
-        Returns a dictionary with the following keys:
-        - main_text: The cleaned response text
-        - thoughts: List of thoughts
-        - mood: Current mood
-        - appearance: List of appearance changes
-        - clothing: List of clothing changes
-        - location: Current location
+        
+        Args:
+            response_text: The text to parse
+            current_appearance: Optional current appearance override
+            
+        Returns:
+            dict: Structured response data with:
+            - main_text: The cleaned response text
+            - thoughts: List of thoughts
+            - mood: Current mood
+            - appearance: List of appearance changes
+            - clothing: List of clothing changes
+            - location: Current location
         """
         logger = Logger()
         logger.warning("DEPRECATED: Using regex-based parse_response. Please use _llm_parse instead.")
@@ -152,7 +206,22 @@ class ResponseParser:
 
     @staticmethod
     def _clean_json_response(response: str) -> str:
-        """Clean up a JSON response to ensure it's properly formatted"""
+        """
+        Clean up a JSON response to ensure it's properly formatted.
+        
+        Args:
+            response: Raw JSON response string
+            
+        Returns:
+            str: Cleaned and properly formatted JSON string
+            
+        This method:
+        1. Removes markdown code blocks
+        2. Ensures proper JSON termination
+        3. Fixes missing commas
+        4. Fixes missing quotes
+        5. Returns valid JSON string
+        """
         # Remove any markdown code block syntax
         response = response.strip()
         if response.startswith("```json"):
@@ -189,7 +258,23 @@ class ResponseParser:
 
     @staticmethod
     async def _llm_parse(text: str, current_appearance: str = None) -> dict:
-        """Parse LLM response using the response schema"""
+        """
+        Parse LLM response using the response schema.
+        
+        Args:
+            text: The text to parse
+            current_appearance: Optional current appearance override
+            
+        Returns:
+            dict: Structured response data or None on error
+            
+        This method:
+        1. Retrieves current character state
+        2. Constructs LLM prompts with context
+        3. Handles multiple input formats
+        4. Validates and formats responses
+        5. Manages provider-specific API calls
+        """
         logger = Logger()
         config = Config()
         
@@ -217,8 +302,15 @@ class ResponseParser:
             # Get the system prompt
             system_prompt = ResponseParser._get_parser_system_prompt(current_appearance)
             
+            # Get current state from state manager
+            state_manager = StateManager()
+            character_state = state_manager.get_state()
+            
             # Add character state information to system prompt
-            system_prompt += f"\n\nCURRENT CHARACTER STATE:\nappearance: {current_appearance}\n"
+            system_prompt += f"\n\nCURRENT CHARACTER STATE:\n"
+            system_prompt += f"appearance: {character_state.get('appearance', '')}\n"
+            system_prompt += f"mood: {character_state.get('mood', '')}\n"
+            system_prompt += f"location: {character_state.get('location', '')}\n"
             
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -249,9 +341,8 @@ class ResponseParser:
             
             logger.debug(f"Response parser request to {endpoint}: {json.dumps(payload, indent=2)}")
             
-            # Use async client for HTTP requests
+            # Make API request
             async with httpx.AsyncClient() as client:
-                # Use a longer timeout for LLM requests (60 seconds)
                 response = await client.post(endpoint, json=payload, headers=headers, timeout=60.0)
                 
                 if response.status_code != 200:
@@ -266,31 +357,25 @@ class ResponseParser:
                 
                 # Handle different response formats
                 if "choices" in response_data:
-                    # OpenAI format
                     parsed_content = response_data["choices"][0]["message"]["content"]
                 elif "message" in response_data:
-                    # Direct message format
                     parsed_content = response_data["message"]["content"]
                 else:
-                    # Try to get content directly
                     parsed_content = response_data.get("content", str(response_data))
             
-            # Log the raw LLM response
             logger.debug(f"Raw LLM response: {parsed_content}")
             
-            # Check if we got a valid response
             if not parsed_content:
                 logger.error("Empty response from LLM")
                 return None
             
-            # Parse the response to ensure it's properly terminated
+            # Parse and validate response
             parsed_content = ResponseParser._clean_json_response(parsed_content)
             
             try:
-                # Try to parse the response
                 result = json.loads(parsed_content)
                 
-                # Validate the response structure
+                # Validate response structure
                 if not isinstance(result, dict):
                     logger.error(f"Response is not a dictionary: {result}")
                     return None
@@ -313,14 +398,26 @@ class ResponseParser:
 
     @staticmethod
     def _get_parser_system_prompt(current_appearance=None) -> str:
-        """Get the parser system prompt from the database"""
-        prompt_manager = PromptManager()
-        parser_data = prompt_manager.get_prompt("response_parser", PromptType.RESPONSE_PARSER.value)
+        """
+        Get the parser system prompt from the YAML configuration.
         
-        if parser_data:
-            base_prompt = parser_data["content"]
-        else:
-            # Fallback to default if not in database
+        Args:
+            current_appearance: Optional current appearance override
+            
+        Returns:
+            str: The system prompt template
+            
+        This method:
+        1. Loads prompt from YAML configuration
+        2. Falls back to default if not found
+        3. Adds state context if provided
+        4. Returns complete prompt
+        """
+        config = Config()
+        base_prompt = config.get("prompts", "response_parser", None)
+        
+        if not base_prompt:
+            # Fallback to default if not in config
             base_prompt = """You are a JSON parser that extracts structured information from AI responses.
 Your task is to extract thoughts, mood changes, and appearance updates from the text.
 

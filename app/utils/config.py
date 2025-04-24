@@ -1,3 +1,24 @@
+"""
+Configuration Management
+======================
+
+This module provides a centralized configuration management system that:
+1. Loads configuration from YAML/JSON files
+2. Integrates with environment variables
+3. Provides a singleton pattern for global access
+4. Handles API key management
+5. Supports configuration persistence
+
+The system prioritizes configuration sources in this order:
+1. Environment variables (highest priority)
+2. YAML configuration file
+3. JSON configuration file
+4. Default values (lowest priority)
+
+This ensures flexible configuration management while maintaining security
+for sensitive data like API keys.
+"""
+
 import json
 import os
 import yaml
@@ -5,16 +26,48 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 class Config:
+    """
+    Singleton configuration manager for the application.
+    
+    This class implements the Singleton pattern to ensure a single source
+    of configuration throughout the application. It handles:
+    1. Loading configuration from multiple sources
+    2. Managing API keys and sensitive data
+    3. Providing type-safe access to configuration values
+    4. Supporting configuration persistence
+    
+    The configuration is loaded once at initialization and can be
+    accessed globally through the singleton instance.
+    """
     _instance = None
     
     def __new__(cls):
+        """
+        Implement the Singleton pattern.
+        
+        Ensures only one instance of the Config class exists throughout
+        the application lifecycle. The first call creates the instance,
+        subsequent calls return the existing instance.
+        """
         if cls._instance is None:
             cls._instance = super(Config, cls).__new__(cls)
             cls._instance._load_config()
         return cls._instance
     
     def _load_config(self):
-        """Load configuration from config.yaml or config.json and .env"""
+        """
+        Load and merge configuration from multiple sources.
+        
+        This method:
+        1. Loads environment variables from .env file
+        2. Attempts to load YAML configuration
+        3. Falls back to JSON configuration if YAML fails
+        4. Merges API keys from environment variables
+        5. Sets default values for missing configurations
+        
+        The configuration is stored in the instance's config dictionary
+        with a hierarchical structure (section -> key -> value).
+        """
         # Load environment variables from .env file
         load_dotenv()
         
@@ -64,13 +117,35 @@ class Config:
         self.config["llm"]["http_referer"] = os.environ.get("HTTP_REFERER", self.config["llm"].get("http_referer", "http://localhost:8080"))
     
     def get(self, section, key=None, default=None):
-        """Get a configuration value"""
+        """
+        Retrieve a configuration value.
+        
+        This method provides safe access to configuration values with
+        support for default values and hierarchical configuration.
+        
+        Args:
+            section: The configuration section (e.g., 'llm', 'image_generation')
+            key: The specific configuration key within the section
+            default: Default value to return if the key is not found
+            
+        Returns:
+            The configuration value if found, otherwise the default value
+        """
         if key is None:
             return self.config.get(section, default)
         return self.config.get(section, {}).get(key, default)
         
     def save(self):
-        """Save the current configuration to the config.yaml file"""
+        """
+        Persist the current configuration to disk.
+        
+        Saves the current configuration state to the YAML configuration file.
+        This allows runtime configuration changes to be preserved between
+        application restarts.
+        
+        Returns:
+            bool: True if the save was successful, False otherwise
+        """
         yaml_config_path = Path(__file__).parent.parent / "config.yaml"
         
         try:

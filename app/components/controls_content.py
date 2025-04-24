@@ -1,3 +1,21 @@
+"""
+Controls Content Component
+=========================
+
+This module serves as a testing and control interface for various system components.
+It provides:
+1. Image generation and rating interface
+2. Memory system testing tools
+3. System state inspection
+4. Diagnostic utilities
+
+The component is primarily used for development and testing, allowing direct
+interaction with core system features and manual verification of functionality.
+
+WARNING: This is a complex testing environment with many interdependencies.
+Be extremely careful when modifying any async operations or UI state management.
+"""
+
 from nicegui import ui, app, events
 from app.models.prompt_models import PromptManager, PromptType
 from app.core.memory_system import MemorySystem
@@ -12,20 +30,50 @@ import asyncio
 from typing import List
 import yaml
 import numpy as np
-import uuid  # Add this import
+import uuid
 import time
-from app.services.qdrant_client import QdrantImageStore
-from app.services.embedding_service import Embedder
+from app.services.qdrant_image_store import QdrantImageStore
+from app.services.embedder import get_embedder
 from app.core.response_parser import ResponseParser
-from app.services.image_store import ImageStore
+from app.services.store_images import StoreImages
 import requests
 import io
 import base64
 from PIL import Image
 
 class Lightbox:
-    """A thumbnail gallery where each image can be clicked to enlarge."""
+    """
+    A modal image gallery with rating capabilities.
+    
+    This component provides:
+    1. Full-screen image viewing
+    2. Navigation between images
+    3. Image rating and storage
+    4. Prompt information display
+    
+    The Lightbox handles both the UI presentation and the backend operations
+    for rating and storing images. It maintains its own state for the current
+    image collection and handles all user interactions.
+    
+    WARNING: The rating system involves multiple async operations and service
+    interactions. Be extremely careful when modifying the rating logic.
+    """
+    
     def __init__(self) -> None:
+        """
+        Initialize the lightbox UI and state.
+        
+        Creates:
+        1. Full-screen dialog
+        2. Image navigation controls
+        3. Rating buttons
+        4. Information display
+        
+        The UI is structured as a modal dialog with:
+        - Top: Image counter
+        - Center: Image display with navigation arrows
+        - Bottom: Prompt information and rating controls
+        """
         with ui.dialog().props('maximized').classes('bg-black') as self.dialog:
             ui.keyboard(self._handle_key)
             with ui.column().classes('w-full h-full items-center justify-between'):
@@ -71,22 +119,38 @@ class Lightbox:
                         # Storage status indicator
                         self.status = ui.label("").classes('text-white ml-4')
         
-        self.image_list = []
-        self.prompt_list = []
-        self.parsed_prompt_list = []
-        self.id_list = []
-        self.current_index = 0
-        self.rating = 0  # Add rating attribute
+        # State management
+        self.image_list = []         # URLs of all images
+        self.prompt_list = []        # Original prompts for each image
+        self.parsed_prompt_list = [] # Parsed prompts for each image
+        self.id_list = []           # Unique IDs for each image
+        self.current_index = 0       # Index of currently displayed image
+        self.rating = 0             # Current rating value
 
     def add_image(self, image_url: str, original_prompt: str = "", parsed_prompt: str = "", image_id: str = None) -> None:
-        """Add an image to the lightbox"""
+        """
+        Add an image to the lightbox collection.
+        
+        Args:
+            image_url: URL of the image to add
+            original_prompt: Original text that generated the image
+            parsed_prompt: Processed prompt used for generation
+            image_id: Unique identifier (generated if not provided)
+        """
         self.image_list.append(image_url)
         self.prompt_list.append(original_prompt)
         self.parsed_prompt_list.append(parsed_prompt)
         self.id_list.append(image_id or str(uuid.uuid4()))
 
     def show(self, image_url: str) -> None:
-        """Show the lightbox with the specified image"""
+        """
+        Display a specific image in the lightbox.
+        
+        Args:
+            image_url: URL of the image to display
+            
+        Note: The image must have been previously added to the lightbox.
+        """
         try:
             idx = self.image_list.index(image_url)
             self._open(self.image_list[idx])
@@ -94,6 +158,14 @@ class Lightbox:
             print(f"Image URL {image_url} not found in lightbox")
 
     def _handle_key(self, event_args: events.KeyEventArguments) -> None:
+        """
+        Handle keyboard navigation events.
+        
+        Supports:
+        - Escape: Close lightbox
+        - Left Arrow: Previous image
+        - Right Arrow: Next image
+        """
         if not event_args.action.keydown:
             return
         if event_args.key.escape:
@@ -104,13 +176,31 @@ class Lightbox:
             self._navigate(1)
 
     def _navigate(self, direction: int) -> None:
-        """Navigate through images. direction should be -1 for previous or 1 for next."""
+        """
+        Navigate between images.
+        
+        Args:
+            direction: -1 for previous, 1 for next
+            
+        Ensures navigation stays within bounds of available images.
+        """
         current_idx = self.current_index
         new_idx = current_idx + direction
         if 0 <= new_idx < len(self.image_list):
             self._open(self.image_list[new_idx])
 
     def _open(self, url: str) -> None:
+        """
+        Open and display an image in the lightbox.
+        
+        Args:
+            url: URL of the image to display
+            
+        Updates:
+        1. Image display
+        2. Counter text
+        3. Prompt information
+        """
         self.large_image.set_source(url)
         current_idx = self.image_list.index(url)
         self.current_index = current_idx
@@ -126,19 +216,35 @@ class Lightbox:
         self.dialog.open()
 
     async def _rate_positive(self):
-        """Rate the current image positively and store it in Qdrant"""
+        """Rate current image positively (+1)"""
         await self._rate_image(1)
     
     async def _rate_neutral(self):
-        """Rate the current image neutrally and store in Qdrant with neutral rating"""
+        """Rate current image neutrally (0)"""
         await self._rate_image(0)
     
     async def _rate_negative(self):
-        """Rate the current image negatively and store in Qdrant with negative rating"""
+        """Rate current image negatively (-1)"""
         await self._rate_image(-1)
         
     async def _rate_image(self, rating_value):
-        """Store image in Qdrant with specified rating"""
+        """
+        Store an image rating in Qdrant with full context.
+        
+        This method:
+        1. Checks if image already exists in Qdrant
+        2. Downloads the image if needed
+        3. Uploads to MinIO if needed
+        4. Generates embeddings
+        5. Stores in Qdrant with state context
+        
+        Args:
+            rating_value: -1 (negative), 0 (neutral), or 1 (positive)
+            
+        WARNING: This is a complex operation involving multiple services
+        and temporary file handling. The order of operations is critical
+        for proper cleanup and error handling.
+        """
         try:
             current_idx = self.current_index
             if current_idx < 0 or current_idx >= len(self.id_list):
@@ -159,12 +265,12 @@ class Lightbox:
                 
             self.status.text = f"{rating_message} rating image..."
             
-            # Get embedder and Qdrant client
-            embedder = Embedder()
+            # Get service instances
+            embedder = get_embedder()
             qdrant = QdrantImageStore()
-            image_store = ImageStore()
+            image_store = StoreImages()
             
-            # First check if the image already exists in Qdrant
+            # First check if image already exists in Qdrant
             update_success = False
             try:
                 # Attempt to update the rating first
@@ -182,7 +288,7 @@ class Lightbox:
             if update_success:
                 return
                 
-            # Get current appearance and mood
+            # Get current state context
             memory_system = MemorySystem()
             current_appearance = memory_system.get_recent_appearances(1)
             current_appearance_text = current_appearance[0]["description"] if current_appearance else None
@@ -210,7 +316,8 @@ class Lightbox:
             
             # Upload to MinIO
             try:
-                minio_url = image_store.upload_image(temp_file, f"{image_id}.jpg")
+                store_images = StoreImages()
+                minio_url = store_images.upload_image(temp_file, f"{image_id}.jpg")
                 self.status.text = f"Image uploaded to MinIO..."
             except Exception as e:
                 self.status.text = f"Failed to upload to MinIO: {str(e)}"
@@ -238,10 +345,10 @@ class Lightbox:
             except:
                 pass
                 
-            # Prepare payload
+            # Prepare payload with all context
             payload = {
                 "prompt": parsed_prompt,
-                "original_prompt": original_prompt,  # Store both prompts
+                "original_prompt": original_prompt,
                 "url": minio_url,  # Store MinIO URL instead of Runware URL
                 "mood": current_mood,
                 "appearance": current_appearance_text,
@@ -249,10 +356,10 @@ class Lightbox:
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "model": "runware",
                 "rating": rating_value,
-                "image_id": image_id  # Store UUID as a separate field
+                "image_id": image_id
             }
             
-            # Store in Qdrant
+            # Store in Qdrant with full context
             result = await qdrant.store_image_embedding(
                 image_id=image_id,
                 vector=image_vector.tolist(),
@@ -271,7 +378,16 @@ class Lightbox:
             self.status.text = f"Error: {str(e)}"
 
 def preview_system_prompt():
-    """Generate and display a preview of the combined system prompt"""
+    """
+    Display a preview of the system prompt with example context.
+    
+    This function:
+    1. Builds a sample system prompt
+    2. Shows it in a formatted dialog
+    3. Allows verification of prompt structure
+    
+    Used for testing prompt generation and formatting.
+    """
     preview_dialog = ui.dialog()
     with preview_dialog:
         with ui.card().classes('w-full'):
@@ -293,7 +409,17 @@ def preview_system_prompt():
     preview_dialog.open()
 
 def display_memory_data():
-    """Display memory data in a dialog window"""
+    """
+    Display the current contents of the memory system.
+    
+    Shows:
+    1. Recent conversations
+    2. Stored thoughts
+    3. Emotional state history
+    
+    Provides a tabbed interface for exploring different types of memories
+    and their associated metadata.
+    """
     memory_system = MemorySystem()
     memory_dialog = ui.dialog()
     
@@ -324,16 +450,17 @@ def display_memory_data():
                 
                 # Thoughts Panel
                 with ui.tab_panel(thoughts_tab):
-                    recent_thoughts = memory_system.get_recent_thoughts(10)
+                    # Get thoughts using semantic search
+                    recent_thoughts = asyncio.run(memory_system.get_semantic_memories("", limit=10))
                     
                     if recent_thoughts:
                         with ui.scroll_area().classes('h-96 w-full'):
                             for thought in recent_thoughts:
                                 with ui.card().classes('q-mb-sm'):
-                                    ui.label(f"Importance: {thought['importance']}").classes('text-bold')
-                                    ui.label(f"Time: {thought['timestamp']}").classes('text-caption')
+                                    ui.label(f"Intensity: {thought.get('intensity', 0.5)}").classes('text-bold')
+                                    ui.label(f"Time: {thought.get('timestamp', '')}").classes('text-caption')
                                     ui.separator()
-                                    ui.markdown(thought["content"])
+                                    ui.markdown(thought["text"])
                     else:
                         ui.label("No thoughts data found").classes('text-italic')
                 
@@ -356,7 +483,18 @@ def display_memory_data():
     memory_dialog.open()
 
 def check_memory_tables():
-    """Check if memory tables exist and show their structure"""
+    """
+    Display the database schema for memory-related tables.
+    
+    Shows the SQL structure of:
+    1. Conversations table
+    2. Thoughts table
+    3. Emotions table
+    4. Relationships table
+    5. Character state table
+    
+    Used for verifying database structure and debugging schema issues.
+    """
     memory_system = MemorySystem()
     tables_dialog = ui.dialog()
     
@@ -414,7 +552,16 @@ CREATE TABLE IF NOT EXISTS character_state (
     tables_dialog.open()
 
 def display_state_info():
-    """Display information about the state system"""
+    """
+    Display current and historical state information.
+    
+    Shows:
+    1. Current state snapshot
+    2. Recent state changes
+    3. State change history
+    
+    Provides a detailed view of the system's state evolution over time.
+    """
     memory_system = MemorySystem()
     state_dialog = ui.dialog()
     
@@ -448,7 +595,12 @@ def display_state_info():
     state_dialog.open()
 
 def initialize_memory_system():
-    """Initialize the memory system tables and show result"""
+    """
+    Initialize or reinitialize the memory system tables.
+    
+    WARNING: This is a destructive operation that will recreate
+    the database tables. Use with caution.
+    """
     memory_system = MemorySystem()
     result = memory_system.initialize_tables()
     
@@ -458,7 +610,17 @@ def initialize_memory_system():
         ui.notify("Error initializing memory tables", color="negative")
 
 def recover_memory_system():
-    """Recover the memory system by restoring prompts and reinitializing tables"""
+    """
+    Attempt to recover the memory system after errors.
+    
+    This function:
+    1. Restores default prompts
+    2. Reinitializes tables
+    3. Reports success/failure
+    
+    WARNING: This is a recovery operation that may affect
+    existing data. Use only when needed.
+    """
     memory_system = MemorySystem()
     
     # First restore prompts
@@ -533,7 +695,7 @@ def test_image_generator_parser():
     
     # Import Qdrant and use pre-initialized embedder
     qdrant_store = QdrantImageStore()
-    embedder = Embedder()
+    embedder = get_embedder()
     
     with ui.card().classes('w-full p-4'):
         ui.label('Test Image Generation').classes('text-xl font-bold mb-4')
@@ -548,7 +710,7 @@ def test_image_generator_parser():
         
         async def store_image_in_qdrant(scene_data, image_url, image_id, mood, appearance, location):
             try:
-                embedder = Embedder()
+                embedder = get_embedder()
                 qdrant = QdrantImageStore()
                 
                 # Get the current clothing from memory system
@@ -562,7 +724,8 @@ def test_image_generator_parser():
                 # Upload image to MinIO
                 print(f"[MinIO] Uploading image from file: {image_url}")
                 try:
-                    minio_url = image_store.upload_image(image_url)
+                    store_images = StoreImages()
+                    minio_url = store_images.upload_image(image_url)
                     print(f"[MinIO] Image uploaded successfully: {minio_url}")
                 except Exception as e:
                     print(f"[MinIO] Failed to upload image: {str(e)}")
@@ -884,8 +1047,8 @@ async def bulk_update_qdrant_images():
     try:
         # Initialize components
         qdrant = QdrantImageStore()
-        image_store = ImageStore()
-        embedder = Embedder()
+        image_store = StoreImages()
+        embedder = get_embedder()
         
         # Create a dialog to show progress
         dialog = ui.dialog()
@@ -1044,3 +1207,143 @@ async def _run_bulk_update(qdrant, image_store, embedder, progress_label, progre
         print(f"Error: {str(e)}")
         import traceback
         print(traceback.format_exc())
+
+def test_image_generation():
+    """
+    Test interface for image generation capabilities.
+    
+    This function provides a UI for:
+    1. Entering image generation prompts
+    2. Selecting model parameters
+    3. Viewing and rating generated images
+    4. Testing image storage and retrieval
+    
+    Note: This is a complex testing environment that involves:
+    - Async operations for image generation
+    - Integration with multiple services (image gen API, MinIO, Qdrant)
+    - UI state management for the image gallery
+    - Error handling for API and storage operations
+    """
+    # ... existing code ...
+
+def test_memory_search():
+    """
+    Test the semantic memory search functionality.
+    
+    Provides a testing interface for:
+    1. Searching through conversation history
+    2. Finding relevant thoughts and memories
+    3. Testing embedding generation
+    4. Verifying search result relevance
+    
+    Uses the embedder service to generate embeddings and
+    performs semantic similarity search in Qdrant.
+    """
+    # ... existing code ...
+
+def test_relationship_tracking():
+    """
+    Test the relationship tracking system.
+    
+    Interface for:
+    1. Adding new relationships
+    2. Modifying existing relationships
+    3. Viewing relationship history
+    4. Testing relationship queries
+    
+    Note: This function interacts with the state manager
+    for relationship data storage and retrieval.
+    """
+    # ... existing code ...
+
+def test_emotion_system():
+    """
+    Test the emotion and mood tracking system.
+    
+    Provides tools for:
+    1. Setting current mood and intensity
+    2. Viewing mood history
+    3. Testing mood transitions
+    4. Verifying emotional state persistence
+    
+    Integrates with the state manager for emotional
+    state tracking and history.
+    """
+    # ... existing code ...
+
+def test_thought_generation():
+    """
+    Test the autonomous thought generation system.
+    
+    Interface for:
+    1. Triggering thought generation
+    2. Viewing generated thoughts
+    3. Testing thought persistence
+    4. Verifying thought relevance
+    
+    Note: This is a complex testing environment that involves:
+    - LLM integration for thought generation
+    - State management for context
+    - Memory system integration for storage
+    """
+    # ... existing code ...
+
+def test_system_recovery():
+    """
+    Test system recovery and error handling.
+    
+    Provides tools for:
+    1. Simulating system failures
+    2. Testing recovery procedures
+    3. Verifying data integrity
+    4. Checking system state after recovery
+    
+    WARNING: This function can trigger destructive operations.
+    Use with caution in testing environments only.
+    """
+    # ... existing code ...
+
+def test_api_integration():
+    """
+    Test external API integrations.
+    
+    Interface for testing:
+    1. OpenRouter API connectivity
+    2. MinIO storage operations
+    3. Qdrant vector operations
+    4. Other external service integrations
+    
+    Helps verify that all external services are
+    properly configured and responding.
+    """
+    # ... existing code ...
+
+def test_state_transitions():
+    """
+    Test state management and transitions.
+    
+    Tools for:
+    1. Modifying system state
+    2. Testing state validation
+    3. Verifying state persistence
+    4. Checking state history
+    
+    Integrates with the state manager to test
+    state transitions and validation rules.
+    """
+    # ... existing code ...
+
+def test_error_handling():
+    """
+    Test system error handling capabilities.
+    
+    Interface for:
+    1. Triggering various error conditions
+    2. Testing error recovery
+    3. Verifying error logging
+    4. Checking system stability
+    
+    WARNING: This function intentionally generates errors
+    to test system resilience. Use with caution.
+    """
+    # ... existing code ...

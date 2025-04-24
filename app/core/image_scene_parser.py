@@ -1,3 +1,28 @@
+"""
+Image Scene Parser
+=================
+
+This module implements the image scene parsing system that handles:
+1. Converting text descriptions into structured image prompts
+2. Incorporating character state into image generation
+3. Managing image sequence and orientation
+4. Validating and formatting image generation requests
+
+The system provides:
+- LLM-based scene parsing with state context
+- Structured prompt generation
+- Multiple provider support (OpenRouter, Local)
+- JSON schema validation
+- Error handling and logging
+
+Key Features:
+- State-aware prompt generation
+- Flexible input handling
+- Schema validation
+- Provider abstraction
+- Response parsing and cleanup
+"""
+
 import json
 import re
 import httpx
@@ -5,26 +30,63 @@ import asyncio
 from app.models.prompt_models import PromptManager, PromptType
 from app.utils.config import Config
 from app.utils.logger import Logger
+from app.core.state_manager import StateManager
 from enum import Enum
 from typing import List, Dict
 
 class LLMProvider(Enum):
+    """
+    Supported LLM providers for image scene parsing.
+    
+    This enum defines the available providers:
+    - LOCAL: Local LLM instance
+    - OPENROUTER: OpenRouter API service
+    """
     LOCAL = "local"
     OPENROUTER = "openrouter"
 
 class ImageSceneParser:
+    """
+    Image scene parser that converts text descriptions into structured image prompts.
+    
+    This class handles:
+    1. Parsing text descriptions into image generation prompts
+    2. Incorporating character state into prompts
+    3. Managing image sequences and orientations
+    4. Validating and formatting responses
+    
+    The parser uses an LLM to generate detailed, structured prompts
+    that include character state context and scene details.
+    """
+    
     @staticmethod
     async def parse_images(response_text, current_appearance=None):
+        """
+        Parse text descriptions into structured image generation prompts.
+        
+        Args:
+            response_text: Text containing image descriptions
+            current_appearance: Optional current appearance override
+            
+        Returns:
+            List of structured image prompts or None on error
+            
+        This method:
+        1. Retrieves current character state
+        2. Constructs LLM prompts with context
+        3. Handles multiple input formats
+        4. Validates and formats responses
+        5. Manages provider-specific API calls
+        """
         logger = Logger()
         logger.info("Starting image parsing from Nyx response")
         logger.debug(f"Original response text: {response_text}")
         logger.debug(f"Current appearance: {current_appearance}")
 
         try:
-            # Get the full character state
-            from app.core.memory_system import MemorySystem
-            memory_system = MemorySystem()
-            character_state = memory_system.get_character_state()
+            # Get the full character state from state manager
+            state_manager = StateManager()
+            character_state = state_manager.get_state()
             
             logger.info("Character state for image generation:")
             logger.info(f"  Mood: {character_state.get('mood', 'None')}")
@@ -32,12 +94,14 @@ class ImageSceneParser:
             logger.info(f"  Clothing: {character_state.get('clothing', 'None')[:50]}...")
             logger.info(f"  Location: {character_state.get('location', 'None')[:50]}...")
 
+            # Get provider configuration
             config = Config()
             parser_provider = config.get("llm", "image_parser_provider", "openrouter")
             parser_model = config.get("llm", "image_parser_model", "mistralai/mistral-small-3.1-24b-instruct")
 
             logger.info(f"Using image parser: {parser_provider}/{parser_model}")
 
+            # Configure provider-specific settings
             if parser_provider == "openrouter":
                 api_base = config.get("llm", "openrouter_api_base", "https://openrouter.ai/api/v1")
                 api_key = config.get("llm", "openrouter_api_key", "")
@@ -54,7 +118,7 @@ class ImageSceneParser:
                 api_base = config.get("llm", "local_api_base", "http://localhost:5000/v1")
                 headers = {"Content-Type": "application/json"}
 
-            # Construct system prompt
+            # Construct system prompt with state context
             prompt_manager = PromptManager()
             parser_data = prompt_manager.get_prompt("image_scene_parser", PromptType.IMAGE_PARSER.value)
             system_prompt = parser_data["content"] if parser_data else ImageSceneParser._default_prompt()
@@ -73,13 +137,13 @@ class ImageSceneParser:
             else:
                 input_data = response_text
 
+            # Process image descriptions with context
             if isinstance(input_data, dict) and "images" in input_data:
                 # Extract sequence information
                 sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
-                # Join all image contents with context
                 image_text = []
                 
-                # Use provided context if available, otherwise fallback to character state
+                # Use provided context if available, otherwise fallback to state
                 mood = input_data.get('mood', character_state.get('mood', 'neutral'))
                 appearance = input_data.get('appearance', character_state.get('appearance', ''))
                 clothing = input_data.get('clothing', character_state.get('clothing', ''))
@@ -105,6 +169,7 @@ class ImageSceneParser:
                 ]
                 image_text = "\n".join(context_prefix) + "\n" + (input_data.get("content", "") if isinstance(input_data, dict) else str(input_data))
 
+            # Prepare messages for LLM
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"{image_text}"}
@@ -112,6 +177,7 @@ class ImageSceneParser:
 
             logger.debug(f"Full messages for image parser:\n{json.dumps(messages, indent=2)}")
 
+            # Configure request payload
             endpoint = f"{api_base}/chat/completions"
             payload = {
                 "model": parser_model,
@@ -142,9 +208,8 @@ class ImageSceneParser:
 
             logger.debug(f"Image parser request to {endpoint}: {json.dumps(payload, indent=2)}")
 
-            # Use async client for HTTP requests
+            # Make API request
             async with httpx.AsyncClient() as client:
-                # Use a longer timeout for LLM requests (60 seconds)
                 response = await client.post(endpoint, json=payload, headers=headers, timeout=60.0)
                 
                 if response.status_code != 200:
@@ -159,31 +224,25 @@ class ImageSceneParser:
                 
                 # Handle different response formats
                 if "choices" in response_data:
-                    # OpenAI format
                     parsed_content = response_data["choices"][0]["message"]["content"]
                 elif "message" in response_data:
-                    # Direct message format
                     parsed_content = response_data["message"]["content"]
                 else:
-                    # Try to get content directly
                     parsed_content = response_data.get("content", str(response_data))
             
-            # Log the raw LLM response
             logger.debug(f"Raw LLM response: {parsed_content}")
 
-            # Check if we got a valid response
             if not parsed_content:
                 logger.error("Empty response from LLM")
                 return None
 
-            # Parse the response to ensure it's properly terminated
+            # Parse and validate response
             parsed_content = ImageSceneParser._parse_response(parsed_content)
 
             try:
-                # Try to parse the response
                 result = json.loads(parsed_content)
                 
-                # Validate the response structure
+                # Validate response structure
                 if not isinstance(result, dict):
                     logger.error(f"Response is not a dictionary: {result}")
                     return None
@@ -206,7 +265,6 @@ class ImageSceneParser:
                         logger.error(f"Image {i} missing 'prompt' key: {image}")
                         return None
                 
-                # Return the images exactly as received from the LLM
                 logger.info("Successfully parsed image scenes")
                 return images
             except json.JSONDecodeError as e:
@@ -220,6 +278,18 @@ class ImageSceneParser:
 
     @staticmethod
     def _default_prompt() -> str:
+        """
+        Get the default system prompt for image scene parsing.
+        
+        Returns:
+            str: The default prompt template
+            
+        This prompt instructs the LLM to:
+        1. Convert text descriptions to image prompts
+        2. Consider character state
+        3. Format output as JSON
+        4. Include sequence and orientation
+        """
         return """You are a specialized visual scene parser for an AI character. Your task is to convert free text descriptions or image tags into specific, detailed image prompts.
 
 INSTRUCTIONS:
@@ -257,7 +327,21 @@ DO NOT include HTML tags, markdown formatting, or explanations. Return ONLY the 
 
     @staticmethod
     def _parse_response(response: str) -> str:
-        """Parse the response from the LLM to extract the JSON content."""
+        """
+        Clean and parse the LLM response to extract valid JSON.
+        
+        Args:
+            response: Raw response string from LLM
+            
+        Returns:
+            str: Cleaned JSON string
+            
+        This method:
+        1. Removes markdown code blocks
+        2. Ensures proper JSON termination
+        3. Handles malformed responses
+        4. Returns clean JSON string
+        """
         # Remove any markdown code block syntax
         response = response.strip()
         if response.startswith("```json"):

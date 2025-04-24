@@ -1,3 +1,26 @@
+"""
+Image Generation Service
+=======================
+
+This module provides the core interface for generating images using the Runware API.
+It handles:
+1. Parallel image generation with proper connection management
+2. Configuration-based image generation parameters
+3. Image downloading and storage in MinIO
+4. Comprehensive error handling and logging
+
+The service is designed to handle multiple image generation requests concurrently
+while maintaining proper error handling and resource management. It uses Runware's
+official Python SDK for image generation and integrates with MinIO for storage.
+
+Key Features:
+- Parallel processing of multiple image requests
+- Automatic connection management and retry logic
+- Configurable image generation parameters
+- Secure image storage in MinIO
+- Detailed logging and error tracking
+"""
+
 import os
 import uuid
 import aiohttp
@@ -12,21 +35,31 @@ from typing import List, Optional, Dict
 
 class ImageGenerator:
     """
-    WARNING: DO NOT REMOVE OR MODIFY THE PARALLEL PROCESSING!
-    ========================================================
-    The parallel image generation is a critical feature that has been working correctly for weeks.
-    Any attempts to remove or modify the parallel processing will break the system and cause
-    concurrency issues with Runware.
+    Core service for generating images using Runware's API.
     
-    The current implementation:
-    1. Creates separate Runware connections for each request
-    2. Processes multiple images concurrently
-    3. Handles timeouts and partial results properly
-    4. Maintains proper error handling and logging
+    This class manages the entire image generation pipeline:
+    1. Connection management with Runware
+    2. Parallel processing of image requests
+    3. Image downloading and storage
+    4. Error handling and logging
     
-    DO NOT CHANGE THIS BEHAVIOR!
+    The implementation uses parallel processing to handle multiple image requests
+    efficiently while maintaining proper error handling and resource management.
+    Each request gets its own Runware connection to prevent concurrency issues.
+    
+    WARNING: The parallel processing implementation is critical and should not be
+    modified as it ensures proper handling of concurrent image generation requests.
     """
     def __init__(self):
+        """
+        Initialize the image generator service.
+        
+        Sets up:
+        - Configuration management
+        - Logging system
+        - Local image storage directory
+        - Runware connection (lazy initialization)
+        """
         self.config = Config()
         self.logger = Logger()
         self.runware = None
@@ -34,7 +67,17 @@ class ImageGenerator:
         os.makedirs(self.images_dir, exist_ok=True)
 
     async def _ensure_connection(self) -> bool:
-        """Ensure we have a valid connection to Runware"""
+        """
+        Ensure a valid connection to Runware's API.
+        
+        This method handles:
+        - Initial connection establishment
+        - Connection recovery if disconnected
+        - Error handling and logging
+        
+        Returns:
+            bool: True if connection is valid, False otherwise
+        """
         try:
             if not self.runware:
                 self.runware = Runware(api_key=self.config.get("image_generation", "runware_api_key"))
@@ -50,7 +93,22 @@ class ImageGenerator:
             return False
 
     async def _safe_request_image(self, request_id: str, request_image: IImageInference):
-        """Safely request images and handle errors"""
+        """
+        Safely execute a single image generation request.
+        
+        This method:
+        - Creates a new Runware connection for each request
+        - Handles API errors gracefully
+        - Provides detailed error logging
+        - Ensures proper resource cleanup
+        
+        Args:
+            request_id: Unique identifier for the request
+            request_image: Image generation parameters
+            
+        Returns:
+            The generated image result or None if generation failed
+        """
         try:
             # Create a new Runware connection for this request
             runware = Runware(api_key=self.config.get("image_generation", "runware_api_key"))
@@ -72,13 +130,22 @@ class ImageGenerator:
             return None
 
     async def generate(self, prompts: list[dict | str], negative_prompt: str = None) -> list[dict]:
-        """Generate one or more images from scene prompts
+        """
+        Generate one or more images from scene prompts.
+        
+        This is the main entry point for image generation. It:
+        1. Validates and processes input prompts
+        2. Applies configuration settings
+        3. Executes parallel image generation
+        4. Handles image downloading and storage
+        5. Manages errors and timeouts
         
         Args:
             prompts: List of scene prompts, where each prompt can be:
                 - A string prompt
                 - A dict with 'prompt', 'original_text', 'orientation', and 'frame' keys
             negative_prompt: Optional negative prompt to use
+            
         Returns:
             List of dicts containing image URLs and file paths. Will be empty if generation failed.
             Each dict has 'url' and 'file_path' keys.
@@ -279,14 +346,22 @@ class ImageGenerator:
             return []
 
     async def _download_and_save_image(self, image_url: str, image_id: str) -> str:
-        """Download an image from URL and save it to MinIO
+        """
+        Download an image from URL and save it to MinIO.
+        
+        This method handles:
+        1. Image downloading from Runware
+        2. Temporary local storage
+        3. Upload to MinIO
+        4. Cleanup of temporary files
+        5. Error handling and logging
         
         Args:
             image_url: The URL of the image to download
             image_id: The unique ID for this image
             
         Returns:
-            The MinIO URL where the image was saved
+            The MinIO URL where the image was saved, or None if the operation failed
         """
         try:
             # Type checking
@@ -317,8 +392,8 @@ class ImageGenerator:
             self.logger.info(f"Saved image {image_id} to {file_path}")
             
             # Upload to MinIO
-            from app.services.image_store import ImageStore
-            image_store = ImageStore()
+            from app.services.store_images import StoreImages
+            image_store = StoreImages()
             minio_url = image_store.upload_image(file_path, object_name=file_name)
             
             # Clean up local file

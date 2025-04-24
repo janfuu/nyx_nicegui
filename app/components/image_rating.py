@@ -1,7 +1,7 @@
 from nicegui import ui, events
-from app.services.qdrant_client import QdrantImageStore
+from app.services.qdrant_image_store import QdrantImageStore
 from app.core.memory_system import MemorySystem
-from app.services.embedding_service import Embedder
+from app.services.embedder import get_embedder
 
 class ImageRating:
     """Handles image rating and storage in Qdrant"""
@@ -22,7 +22,7 @@ class ImageRating:
             self.status.text = f"{rating_message} rating image..."
             
             # Get embedder and Qdrant client
-            embedder = Embedder()
+            embedder = get_embedder()
             qdrant = QdrantImageStore()
             
             # First check if the image already exists in Qdrant

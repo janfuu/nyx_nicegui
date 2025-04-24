@@ -1,3 +1,24 @@
+"""
+Logger Service
+=============
+
+This module implements a singleton logging service that provides:
+1. Multi-level logging (debug, info, warning, error)
+2. Dual output (file and console)
+3. Structured conversation logging
+4. Raw payload archiving
+
+The logger uses Python's built-in logging module with custom formatting
+and file handling. It maintains separate logs for:
+- General application logs (debug, info, warnings, errors)
+- Detailed conversation turns
+- Raw payloads for technical debugging
+
+Log files are organized in the 'logs' directory:
+- nyx_YYYYMMDD_HHMMSS.log: Main application log
+- logs/raw/payload_YYYYMMDD_HHMMSS_ffffff.json: Raw conversation payloads
+"""
+
 import logging
 import os
 import json
@@ -5,15 +26,37 @@ from datetime import datetime
 from pathlib import Path
 
 class Logger:
+    """
+    Singleton logging service for the Nyx AI system.
+    
+    This class provides a centralized logging service that:
+    1. Maintains a single instance across the application
+    2. Handles multiple log levels and outputs
+    3. Provides structured logging for conversations
+    4. Archives raw payloads for debugging
+    
+    The logger is designed to be thread-safe and provides consistent
+    logging across all components of the system.
+    """
     _instance = None
     
     def __new__(cls):
+        """Ensure singleton pattern - only one logger instance exists."""
         if cls._instance is None:
             cls._instance = super(Logger, cls).__new__(cls)
             cls._instance._setup_logging()
         return cls._instance
     
     def _setup_logging(self):
+        """
+        Initialize logging configuration.
+        
+        Sets up:
+        1. Log directory structure
+        2. File and console handlers
+        3. Log formatting
+        4. Log levels for different outputs
+        """
         # Create logs directory if it doesn't exist
         logs_dir = Path('logs')
         logs_dir.mkdir(exist_ok=True)
@@ -40,19 +83,38 @@ class Logger:
         self.logger.info(f"Logger initialized. Logs will be saved to {self.log_file}")
     
     def info(self, message):
+        """Log an informational message."""
         self.logger.info(message)
     
     def debug(self, message):
+        """Log a debug message (only visible in file logs)."""
         self.logger.debug(message)
         
     def warning(self, message):
+        """Log a warning message."""
         self.logger.warning(message)
         
     def error(self, message, exc_info=True):
+        """Log an error message with optional exception info."""
         self.logger.error(message, exc_info=exc_info)
     
     def log_conversation(self, system_prompt, user_message, conversation_history, llm_response, provider, model):
-        """Log a complete conversation turn with all details"""
+        """
+        Log a complete conversation turn with all details.
+        
+        This method logs:
+        1. A summary to the main log file
+        2. Detailed conversation information
+        3. Raw payload for technical debugging
+        
+        Args:
+            system_prompt: The system prompt used for this conversation
+            user_message: The user's input message
+            conversation_history: List of previous messages
+            llm_response: The AI's response
+            provider: The LLM provider used
+            model: The specific model used
+        """
         # Create a detailed log entry as a dictionary
         log_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -87,7 +149,17 @@ class Logger:
         self._log_raw_payload(log_entry)
         
     def _log_raw_payload(self, log_entry):
-        """Log raw payloads for technical debugging"""
+        """
+        Log raw payloads for technical debugging.
+        
+        This method:
+        1. Creates a raw logs directory if needed
+        2. Saves the complete payload as JSON
+        3. Uses microsecond precision in filenames
+        
+        Args:
+            log_entry: Dictionary containing the complete conversation data
+        """
         raw_logs_dir = Path('logs/raw')
         raw_logs_dir.mkdir(exist_ok=True)
         
