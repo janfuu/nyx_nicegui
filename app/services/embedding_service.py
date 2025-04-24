@@ -46,3 +46,15 @@ class Embedder:
         image.save(buffered, format="JPEG")
         b64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
         return image, b64_str
+
+    def embed_image_from_file(self, file_path):
+        """Embed an image from a local file path"""
+        try:
+            image = Image.open(file_path).convert("RGB")
+            inputs = self.clip_processor(images=image, return_tensors="pt")
+            with torch.no_grad():
+                image_features = self.clip_model.get_image_features(**inputs)
+            return image_features[0].cpu().numpy()
+        except Exception as e:
+            print(f"Failed to embed image from file: {e}")
+            return None

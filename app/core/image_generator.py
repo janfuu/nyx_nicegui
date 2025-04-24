@@ -71,7 +71,7 @@ class ImageGenerator:
             self.logger.error(f"Error creating Runware connection for request {request_id}: {str(e)}")
             return None
 
-    async def generate(self, prompts: list[dict | str], negative_prompt: str = None) -> list[str]:
+    async def generate(self, prompts: list[dict | str], negative_prompt: str = None) -> list[dict]:
         """Generate one or more images from scene prompts
         
         Args:
@@ -80,7 +80,8 @@ class ImageGenerator:
                 - A dict with 'prompt', 'original_text', 'orientation', and 'frame' keys
             negative_prompt: Optional negative prompt to use
         Returns:
-            List of image URL strings. Will be empty if generation failed.
+            List of dicts containing image URLs and file paths. Will be empty if generation failed.
+            Each dict has 'url' and 'file_path' keys.
         """
         try:
             if not await self._ensure_connection():
@@ -226,7 +227,7 @@ class ImageGenerator:
                 return []
 
             # Process results
-            image_urls = []
+            image_results = []
             for i, (result, request_id) in enumerate(zip(all_results, request_ids)):
                 # Check if the result is an exception
                 if isinstance(result, Exception):
@@ -238,15 +239,97 @@ class ImageGenerator:
                     image = result[0]
                     # Log the complete image object
                     self.logger.info(f"Image {i+1} (ID: {request_id}) complete result: {image}")
-                    # Add URL to our list
-                    image_urls.append(image.imageURL)
+                    
+                    # Get the image URL
+                    if isinstance(image, dict):
+                        image_url = image.get('imageURL', image.get('url'))
+                    elif hasattr(image, 'imageURL'):
+                        image_url = image.imageURL
+                    else:
+                        self.logger.error(f"Image object does not have imageURL attribute: {image}")
+                        continue
+                    
+                    if not image_url:
+                        self.logger.error(f"No URL found in image object: {image}")
+                        continue
+                    
+                    # Generate a unique ID from the URL
+                    try:
+                        image_id = image_url.split('/')[-1].split('.')[0]
+                    except:
+                        image_id = f"img_{int(time.time())}_{i}"
+                    
+                    # Download and save the image
+                    file_path = await self._download_and_save_image(image_url, image_id)
+                    
+                    # Add result to our list
+                    image_results.append({
+                        'url': image_url,
+                        'file_path': file_path
+                    })
 
             # Log the complete list with repr to ensure nothing is truncated
-            self.logger.info(f"All generated image URLs: {repr(image_urls)}")
+            self.logger.info(f"All generated image results: {repr(image_results)}")
             
-            # Always return the list of URLs
-            return image_urls
+            # Always return the list of results
+            return image_results
 
         except Exception as e:
             self.logger.error(f"Error in image generation: {str(e)}")
             return []
+
+    async def _download_and_save_image(self, image_url: str, image_id: str) -> str:
+        """Download an image from URL and save it to MinIO
+        
+        Args:
+            image_url: The URL of the image to download
+            image_id: The unique ID for this image
+            
+        Returns:
+            The MinIO URL where the image was saved
+        """
+        try:
+            # Type checking
+            if not isinstance(image_url, str):
+                self.logger.error(f"image_url must be a string, got {type(image_url)}: {image_url}")
+                return None
+                
+            if not isinstance(image_id, str):
+                self.logger.error(f"image_id must be a string, got {type(image_id)}: {image_id}")
+                return None
+            
+            # Create a file path using the image ID
+            file_name = f"{image_id}.jpg"
+            file_path = os.path.join(self.images_dir, file_name)
+            
+            self.logger.info(f"Downloading image from {image_url} to {file_path}")
+            
+            # Download the image
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url) as response:
+                    response.raise_for_status()
+                    content = await response.read()
+                    
+                    # Save to file temporarily
+                    with open(file_path, 'wb') as f:
+                        f.write(content)
+                        
+            self.logger.info(f"Saved image {image_id} to {file_path}")
+            
+            # Upload to MinIO
+            from app.services.image_store import ImageStore
+            image_store = ImageStore()
+            minio_url = image_store.upload_image(file_path, object_name=file_name)
+            
+            # Clean up local file
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                self.logger.warning(f"Failed to clean up local file {file_path}: {str(e)}")
+            
+            self.logger.info(f"Uploaded image {image_id} to MinIO: {minio_url}")
+            return minio_url
+            
+        except Exception as e:
+            self.logger.error(f"Error downloading/saving image {image_id}: {str(e)}")
+            return None

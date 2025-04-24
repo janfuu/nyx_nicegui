@@ -36,6 +36,7 @@ llm:
 qdrant:
   host: localhost
   port: 6333
+  embedding_model: all-MiniLM-L6-v2
   collections:
     images:
       name: nyx_images
@@ -45,6 +46,10 @@ qdrant:
       name: nyx_memories
       vector_size: 768
       distance: cosine
+
+minio:
+  endpoint_url: http://orang:9000
+  bucket: nyximages
 
 image_generation:
   # Main model to use for image generation

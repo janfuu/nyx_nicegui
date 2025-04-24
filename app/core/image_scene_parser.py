@@ -64,41 +64,37 @@ class ImageSceneParser:
             
             logger.debug(f"System prompt for image parser:\n{system_prompt}")
 
-            # Parse the input JSON if it's a JSON string
-            try:
-                input_data = json.loads(response_text)
-                if isinstance(input_data, dict) and "images" in input_data:
-                    # Extract sequence information
-                    sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
-                    # Join all image contents with context
-                    image_text = []
-                    
-                    # Use provided context if available, otherwise fallback to character state
-                    mood = input_data.get('mood', character_state.get('mood', 'neutral'))
-                    appearance = input_data.get('appearance', character_state.get('appearance', ''))
-                    clothing = input_data.get('clothing', character_state.get('clothing', ''))
-                    location = input_data.get('location', character_state.get('location', ''))
-                    
-                    # Add all context
-                    image_text.append(f"Current mood: {mood}")
-                    image_text.append(f"Current appearance: {appearance}")
-                    image_text.append(f"Current clothing: {clothing}")
-                    image_text.append(f"Current location: {location}")
-                    
-                    # Add all image descriptions
-                    image_text.extend([f"Image {seq}: {img['content']}" for seq, img in zip(sequences, input_data["images"])])
-                    image_text = "\n".join(image_text)
-                else:
-                    # For free-text input, add context before the content
-                    context_prefix = [
-                        f"Current mood: {character_state.get('mood', 'neutral')}",
-                        f"Current appearance: {character_state.get('appearance', '')}",
-                        f"Current clothing: {character_state.get('clothing', '')}",
-                        f"Current location: {character_state.get('location', '')}",
-                        "Image description:"
-                    ]
-                    image_text = "\n".join(context_prefix) + "\n" + response_text
-            except json.JSONDecodeError:
+            # Handle input data based on its type
+            if isinstance(response_text, str):
+                try:
+                    input_data = json.loads(response_text)
+                except json.JSONDecodeError:
+                    input_data = {"content": response_text}
+            else:
+                input_data = response_text
+
+            if isinstance(input_data, dict) and "images" in input_data:
+                # Extract sequence information
+                sequences = [img.get("sequence", i+1) for i, img in enumerate(input_data["images"])]
+                # Join all image contents with context
+                image_text = []
+                
+                # Use provided context if available, otherwise fallback to character state
+                mood = input_data.get('mood', character_state.get('mood', 'neutral'))
+                appearance = input_data.get('appearance', character_state.get('appearance', ''))
+                clothing = input_data.get('clothing', character_state.get('clothing', ''))
+                location = input_data.get('location', character_state.get('location', ''))
+                
+                # Add all context
+                image_text.append(f"Current mood: {mood}")
+                image_text.append(f"Current appearance: {appearance}")
+                image_text.append(f"Current clothing: {clothing}")
+                image_text.append(f"Current location: {location}")
+                
+                # Add all image descriptions
+                image_text.extend([f"Image {seq}: {img['content']}" for seq, img in zip(sequences, input_data["images"])])
+                image_text = "\n".join(image_text)
+            else:
                 # For free-text input, add context before the content
                 context_prefix = [
                     f"Current mood: {character_state.get('mood', 'neutral')}",
@@ -107,7 +103,7 @@ class ImageSceneParser:
                     f"Current location: {character_state.get('location', '')}",
                     "Image description:"
                 ]
-                image_text = "\n".join(context_prefix) + "\n" + response_text
+                image_text = "\n".join(context_prefix) + "\n" + (input_data.get("content", "") if isinstance(input_data, dict) else str(input_data))
 
             messages = [
                 {"role": "system", "content": system_prompt},

@@ -1,0 +1,51 @@
+# Cursor Assistant Rules
+# ====================
+
+# Core Principles
+# --------------
+# 1. READ THE SOURCE FIRST
+# 2. DO NOT INVENT METHODS
+# 3. DO NOT BREAK WORKING CODE
+# 4. DO NOT MAKE ASSUMPTIONS
+
+# Code Modification Rules
+# ---------------------
+# 1. ALWAYS read the source file completely before making changes
+# 2. NEVER invent new methods or functions without explicit user request
+# 3. NEVER modify working code unless explicitly asked
+# 4. ALWAYS verify imports exist before using them
+# 5. ALWAYS check for circular imports
+# 6. ALWAYS use existing patterns and structures
+# 7. NEVER refactor or "improve" code without explicit request
+
+# Error Prevention
+# --------------
+# 1. ALWAYS check for existing functionality first
+# 2. ALWAYS verify method signatures match
+# 3. ALWAYS check import paths are correct
+# 4. ALWAYS test changes in isolation
+# 5. ALWAYS ask for clarification if unsure
+
+# Best Practices
+# -------------
+# 1. Keep changes minimal and targeted
+# 2. Follow existing code patterns
+# 3. Use existing utility functions
+# 4. Maintain consistent error handling
+# 5. Document changes clearly
+
+# Failure Modes to Avoid
+# ---------------------
+# 1. DO NOT invent new configuration methods
+# 2. DO NOT create circular dependencies
+# 3. DO NOT break existing imports
+# 4. DO NOT modify working code patterns
+# 5. DO NOT make assumptions about code structure
+
+# When in Doubt
+# ------------
+# 1. READ THE SOURCE AGAIN
+# 2. ASK FOR CLARIFICATION
+# 3. PROPOSE CHANGES FOR REVIEW
+# 4. WAIT FOR CONFIRMATION
+# 5. TEST THOROUGHLY BEFORE COMMITTING 

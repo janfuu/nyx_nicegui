@@ -521,13 +521,6 @@ def content() -> None:
                             # Start a heartbeat to keep connection alive
                             heartbeat_task = setup_heartbeat()
                             
-                            # Initialize update flags
-                            has_thoughts_update = False
-                            has_mood_update = False
-                            has_appearance_update = False
-                            has_clothing_update = False
-                            has_location_update = False
-                            
                             try:
                                 if test_mode:
                                     # In test mode, create a mock response that echoes the input
@@ -570,167 +563,116 @@ def content() -> None:
                                     if location_tags:
                                         mock_response['location'] = location_tags[0]  # Only use the first location tag
                                     
-                                    # If image tags were found, process them through the actual image generation pipeline
-                                    if image_tags:
-                                        # Get current state for image generation
-                                        current_appearance = memory_system.get_recent_appearances(1)
-                                        current_appearance_text = current_appearance[0]["description"] if current_appearance else None
-                                        current_mood = memory_system.get_current_mood()
-                                        current_location = memory_system.get_recent_locations(1)
-                                        current_location_text = current_location[0]["description"] if current_location else None
-                                        
-                                        # Create image context
-                                        image_context = {
-                                            "appearance": current_appearance_text,
-                                            "mood": current_mood,
-                                            "location": current_location_text,
-                                            "images": [{"content": content, "sequence": i+1} for i, content in enumerate(image_tags)]
-                                        }
-                                        
-                                        # Parse scenes using the actual parser
-                                        parsed_scenes = await chat_pipeline.image_scene_parser.parse_images(
-                                            json.dumps(image_context),
-                                            current_appearance=current_appearance_text
-                                        )
-                                        
-                                        if parsed_scenes:
-                                            # Generate images using the actual generator
-                                            image_urls = await chat_pipeline.image_generator.generate(parsed_scenes)
-                                            
-                                            # Process results
-                                            for i, image_url in enumerate(image_urls):
-                                                if image_url:
-                                                    # Get the sequence number from the frame field if present, otherwise use index + 1
-                                                    sequence = parsed_scenes[i].get("frame", i + 1)
-                                                    try:
-                                                        image_uuid = image_url.split('/')[-1].split('.')[0]
-                                                    except:
-                                                        image_uuid = f"img_{int(time.time())}_{i}"
-                                                    
-                                                    # Get the original content from the corresponding input image
-                                                    original_prompt = ""
-                                                    if i < len(image_tags):
-                                                        original_prompt = image_tags[i]
-                                                    
-                                                    mock_response['images'].append({
-                                                        "url": image_url,
-                                                        "description": parsed_scenes[i].get("content", parsed_scenes[i].get("prompt", "Generated image")),
-                                                        "id": image_uuid,
-                                                        "sequence": sequence,
-                                                        "original_prompt": original_prompt,
-                                                        "parsed_prompt": parsed_scenes[i].get("prompt", ""),
-                                                        "scene_data": parsed_scenes[i]  # Include the full scene data
-                                                    })
-                                    
-                                    response = mock_response
-                                else:
-                                    # Update phase to "Generating response..."
-                                    phase_label.text = "Generating response..."
-                                    ui.update()
-                                    
-                                    # Get LLM response with timeout in normal mode
-                                    response = await asyncio.wait_for(
-                                        chat_pipeline.process_message(current_message),
-                                        timeout=120  # Increased timeout to 120 seconds
-                                    )
-                                    
-                                    # Update phase to "Processing response..."
-                                    phase_label.text = "Processing response..."
-                                    ui.update()
-                                    
-                                    # Display the raw response immediately
+                                    # Create a temporary response container for streaming
                                     with chat_box:
-                                        # Remove the spinner row
-                                        chat_box.remove(spinner_row)
-                                        
-                                        # Create a temporary response card
                                         temp_response = ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500')
                                         with temp_response:
-                                            ui.markdown(response['text']).classes('text-white')
-                                        
-                                        # Add a processing indicator
-                                        processing_row = ui.row().classes('w-full justify-center my-2')
-                                        with processing_row:
-                                            ui.spinner('dots', size='sm', color='primary')
-                                            ui.label('Processing images and state updates...').classes('text-gray-400 ml-2')
+                                            streaming_text = ui.markdown("").classes('text-white')
                                     
-                                    # Update phase to "Processing images..."
-                                    phase_label.text = "Processing images..."
-                                    ui.update()
+                                    # Simulate streaming response
+                                    current_text = ""
+                                    words = mock_response['text'].split()
                                     
-                                    # Process images and state updates
-                                    if response.get("images"):
-                                        # Process images directly instead of in a separate function
-                                        for image_data in response["images"]:
-                                            if isinstance(image_data, dict) and "url" in image_data:
-                                                try:
-                                                    # Add image to lightbox
-                                                    lightbox.add_image(
-                                                        thumb_url=image_data["url"],
-                                                        orig_url=image_data["url"],
-                                                        image_id=image_data.get("id", str(uuid.uuid4())),
-                                                        original_prompt=image_data.get("original_prompt", ""),
-                                                        parsed_prompt=image_data.get("parsed_prompt", "")
-                                                    )
-                                                except Exception as e:
-                                                    print(f"Error processing image: {str(e)}")
+                                    # Stream words with realistic delays
+                                    for word in words:
+                                        current_text += word + " "
+                                        streaming_text.content = clean_response_text(current_text)
+                                        ui.update()
+                                        await asyncio.sleep(0.1)  # 100ms delay between words
+                                    
+                                    # Simulate final response
+                                    chat_box.remove(temp_response)
+                                    with chat_box:
+                                        # Create final response card
+                                        with ui.card().classes('self-start bg-gray-700 p-3 rounded-lg mb-3 max-w-3/4 border-l-4 border-blue-500'):
+                                            # Display parsed text
+                                            ui.markdown(clean_response_text(mock_response['text'])).classes('text-white')
+                                            
+                                            # Add indicator for hidden content if present
+                                            if has_hidden_content(mock_response['text']):
+                                                with ui.row().classes('justify-end items-center mt-1'):
+                                                    ui.icon('lock', color='grey').classes('text-xs')
+                                            
+                                            # Process images if available
+                                            if image_tags:
+                                                # Get current state for image generation
+                                                current_appearance = memory_system.get_recent_appearances(1)
+                                                current_appearance_text = current_appearance[0]["description"] if current_appearance else None
+                                                current_mood = memory_system.get_current_mood()
+                                                current_location = memory_system.get_recent_locations(1)
+                                                current_location_text = current_location[0]["description"] if current_location else None
+                                                
+                                                # Create image context
+                                                image_context = {
+                                                    "appearance": current_appearance_text,
+                                                    "mood": current_mood,
+                                                    "location": current_location_text,
+                                                    "images": [{"content": content, "sequence": i+1} for i, content in enumerate(image_tags)]
+                                                }
+                                                
+                                                # Parse scenes using the actual parser
+                                                parsed_scenes = await chat_pipeline.image_scene_parser.parse_images(
+                                                    json.dumps(image_context),
+                                                    current_appearance=current_appearance_text
+                                                )
+                                                
+                                                if parsed_scenes:
+                                                    # Generate images using the actual generator
+                                                    image_urls = await chat_pipeline.image_generator.generate(parsed_scenes)
+                                                    
+                                                    # Process results
+                                                    for i, image_url in enumerate(image_urls):
+                                                        if image_url:
+                                                            # Get the sequence number from the frame field if present, otherwise use index + 1
+                                                            sequence = parsed_scenes[i].get("frame", i + 1)
+                                                            try:
+                                                                image_uuid = image_url.split('/')[-1].split('.')[0]
+                                                            except:
+                                                                image_uuid = f"img_{int(time.time())}_{i}"
+                                                            
+                                                            # Get the original content from the corresponding input image
+                                                            original_prompt = ""
+                                                            if i < len(image_tags):
+                                                                original_prompt = image_tags[i]
+                                                            
+                                                            mock_response['images'].append({
+                                                                "url": image_url,
+                                                                "description": parsed_scenes[i].get("content", parsed_scenes[i].get("prompt", "Generated image")),
+                                                                "id": image_uuid,
+                                                                "sequence": sequence,
+                                                                "original_prompt": original_prompt,
+                                                                "parsed_prompt": parsed_scenes[i].get("prompt", ""),
+                                                                "scene_data": parsed_scenes[i]  # Include the full scene data
+                                                            })
                                     
                                     # Update state displays
-                                    if response.get("mood"):
-                                        memory_system.update_mood(response["mood"])
-                                        mood_display.content = response["mood"]
+                                    if mock_response.get("mood"):
+                                        memory_system.update_mood(mock_response["mood"])
+                                        mood_display.content = mock_response["mood"]
                                     
-                                    if response.get("thoughts"):
-                                        for thought in response["thoughts"]:
+                                    if mock_response.get("thoughts"):
+                                        for thought in mock_response["thoughts"]:
                                             memory_system.add_thought(thought)
-                                        thoughts_display.content = response["thoughts"][-1]
+                                        thoughts_display.content = mock_response["thoughts"][-1]
                                     
-                                    if response.get("appearance"):
-                                        last_appearance = response["appearance"][-1]
+                                    if mock_response.get("appearance"):
+                                        last_appearance = mock_response["appearance"][-1]
                                         appearance_display.content = last_appearance
-                                        for appearance in response["appearance"]:
+                                        for appearance in mock_response["appearance"]:
                                             memory_system.add_appearance(appearance)
                                     
-                                    if response.get("clothing"):
-                                        last_clothing = response["clothing"][-1]
+                                    if mock_response.get("clothing"):
+                                        last_clothing = mock_response["clothing"][-1]
                                         clothing_display.content = last_clothing
-                                        for clothing in response["clothing"]:
+                                        for clothing in mock_response["clothing"]:
                                             memory_system.add_clothing(clothing)
                                     
-                                    # Update phase to "Finalizing..."
-                                    phase_label.text = "Finalizing..."
-                                    ui.update()
-                                    
-                                    # Replace temporary response with final processed version
-                                    with chat_box:
-                                        # Remove temporary response and processing indicator
-                                        chat_box.remove(temp_response)
-                                        chat_box.remove(processing_row)
-                                        
-                                        # Display final processed response
-                                        display_message(chat_box, response, memory_system)
-                                    
-                                    # Update phase to "Done"
-                                    phase_label.text = "Done"
-                                    ui.update()
-                                    
                             except asyncio.TimeoutError:
-                                # Handle timeout by showing the partial response if available
-                                try:
-                                    chat_box.remove(spinner_row)
-                                except:
-                                    pass
+                                chat_box.remove(temp_response)
                                 with chat_box:
-                                    if 'response' in locals():
-                                        # Show whatever response we got before timeout
-                                        display_message(chat_box, response, memory_system)
-                                    else:
-                                        ui.label("Response generation timed out. Please try a shorter message.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
+                                    ui.label("Response generation timed out. Please try a shorter message.").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                             except Exception as e:
-                                try:
-                                    chat_box.remove(spinner_row)
-                                except:
-                                    pass
+                                chat_box.remove(temp_response)
                                 with chat_box:
                                     ui.label(f"Error: {str(e)}").classes('self-start bg-red-800 p-2 rounded-lg mb-2')
                             finally:

@@ -35,9 +35,7 @@ from .services.chat_pipeline import ChatPipeline
 
 # Import Qdrant initialization
 from .utils.qdrant_init import initialize_qdrant
-
-# Import embedder from new module
-from .services.embedder import get_embedder
+from .services.embedding_service import Embedder
 
 # Initialize database
 db = Database()
@@ -82,7 +80,8 @@ async def _initialize_services():
     # Initialize the embedding model (CLIP)
     try:
         # Test with a simple embedding to make sure everything is loaded
-        _ = get_embedder().embed_prompt("Test embedding initialization")
+        embedder = Embedder()
+        _ = embedder.embed_prompt("Test embedding initialization")
         print("Embedding models loaded successfully")
     except Exception as e:
         print(f"Error initializing embedding models: {str(e)}")

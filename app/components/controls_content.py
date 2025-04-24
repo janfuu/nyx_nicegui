@@ -13,9 +13,15 @@ from typing import List
 import yaml
 import numpy as np
 import uuid  # Add this import
+import time
 from app.services.qdrant_client import QdrantImageStore
-from app.main import get_embedder
+from app.services.embedding_service import Embedder
 from app.core.response_parser import ResponseParser
+from app.services.image_store import ImageStore
+import requests
+import io
+import base64
+from PIL import Image
 
 class Lightbox:
     """A thumbnail gallery where each image can be clicked to enlarge."""
@@ -70,16 +76,22 @@ class Lightbox:
         self.parsed_prompt_list = []
         self.id_list = []
         self.current_index = 0
+        self.rating = 0  # Add rating attribute
 
-    def add_image(self, thumb_url: str, orig_url: str, image_id: str, original_prompt: str, parsed_prompt: str) -> ui.image:
-        """Place a thumbnail image in the UI and make it clickable to enlarge."""
-        self.image_list.append(orig_url)
+    def add_image(self, image_url: str, original_prompt: str = "", parsed_prompt: str = "", image_id: str = None) -> None:
+        """Add an image to the lightbox"""
+        self.image_list.append(image_url)
         self.prompt_list.append(original_prompt)
         self.parsed_prompt_list.append(parsed_prompt)
-        self.id_list.append(image_id)
-        
-        with ui.button(on_click=lambda: self._open(orig_url)).props('flat dense square'):
-            return ui.image(thumb_url)
+        self.id_list.append(image_id or str(uuid.uuid4()))
+
+    def show(self, image_url: str) -> None:
+        """Show the lightbox with the specified image"""
+        try:
+            idx = self.image_list.index(image_url)
+            self._open(self.image_list[idx])
+        except ValueError:
+            print(f"Image URL {image_url} not found in lightbox")
 
     def _handle_key(self, event_args: events.KeyEventArguments) -> None:
         if not event_args.action.keydown:
@@ -111,11 +123,8 @@ class Lightbox:
         if current_idx < len(self.parsed_prompt_list):
             self.parsed_prompt.content = f"**Parsed prompt:** {self.parsed_prompt_list[current_idx]}"
         
-        # Reset status
-        self.status.text = ""
-        
         self.dialog.open()
-    
+
     async def _rate_positive(self):
         """Rate the current image positively and store it in Qdrant"""
         await self._rate_image(1)
@@ -151,11 +160,9 @@ class Lightbox:
             self.status.text = f"{rating_message} rating image..."
             
             # Get embedder and Qdrant client
-            from app.main import get_embedder
-            from app.services.qdrant_client import QdrantImageStore
-            
-            embedder = get_embedder()
+            embedder = Embedder()
             qdrant = QdrantImageStore()
+            image_store = ImageStore()
             
             # First check if the image already exists in Qdrant
             update_success = False
@@ -176,7 +183,6 @@ class Lightbox:
                 return
                 
             # Get current appearance and mood
-            from app.core.memory_system import MemorySystem
             memory_system = MemorySystem()
             current_appearance = memory_system.get_recent_appearances(1)
             current_appearance_text = current_appearance[0]["description"] if current_appearance else None
@@ -184,25 +190,66 @@ class Lightbox:
             current_location = memory_system.get_recent_locations(1)
             current_location_text = current_location[0]["description"] if current_location else None
             
-            # Embed the image
-            image_vector, thumbnail_b64 = embedder.embed_image_from_url(image_url)
+            # Download the image
+            try:
+                response = requests.get(image_url)
+                response.raise_for_status()
+                image_data = response.content
+            except Exception as e:
+                self.status.text = f"Failed to download image: {str(e)}"
+                return
+            
+            # Create a temporary file for the image
+            temp_file = f"temp_{image_id}.jpg"
+            try:
+                with open(temp_file, 'wb') as f:
+                    f.write(image_data)
+            except Exception as e:
+                self.status.text = f"Failed to save image: {str(e)}"
+                return
+            
+            # Upload to MinIO
+            try:
+                minio_url = image_store.upload_image(temp_file, f"{image_id}.jpg")
+                self.status.text = f"Image uploaded to MinIO..."
+            except Exception as e:
+                self.status.text = f"Failed to upload to MinIO: {str(e)}"
+                # Clean up temp file
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+                return
+            
+            # Get CLIP embedding
+            image_vector = embedder.embed_image_from_file(temp_file)
             if image_vector is None:
                 self.status.text = "Failed to embed image"
+                # Clean up temp file
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
                 return
+            
+            # Clean up temp file
+            try:
+                os.remove(temp_file)
+            except:
+                pass
                 
             # Prepare payload
-            import time
             payload = {
                 "prompt": parsed_prompt,
                 "original_prompt": original_prompt,  # Store both prompts
-                "url": image_url,
-                "thumbnail_b64": thumbnail_b64,
+                "url": minio_url,  # Store MinIO URL instead of Runware URL
                 "mood": current_mood,
                 "appearance": current_appearance_text,
                 "location": current_location_text,
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "model": "runware",
-                "rating": rating_value
+                "rating": rating_value,
+                "image_id": image_id  # Store UUID as a separate field
             }
             
             # Store in Qdrant
@@ -480,14 +527,13 @@ def test_image_generator_parser():
     """Test the image generator and scene parser together"""
     # Initialize components
     memory_system = MemorySystem()
-    response_parser = ResponseParser()
     image_scene_parser = ImageSceneParser()
     image_generator = ImageGenerator()
     lightbox = Lightbox()
     
     # Import Qdrant and use pre-initialized embedder
     qdrant_store = QdrantImageStore()
-    embedder = get_embedder()
+    embedder = Embedder()
     
     with ui.card().classes('w-full p-4'):
         ui.label('Test Image Generation').classes('text-xl font-bold mb-4')
@@ -499,6 +545,72 @@ def test_image_generator_parser():
         
         # Results area
         results_container = ui.column().classes('w-full')
+        
+        async def store_image_in_qdrant(scene_data, image_url, image_id, mood, appearance, location):
+            try:
+                embedder = Embedder()
+                qdrant = QdrantImageStore()
+                
+                # Get the current clothing from memory system
+                clothing = None
+                try:
+                    current_clothing = memory_system.get_recent_clothing(1)
+                    clothing = current_clothing[0]["description"] if current_clothing else None
+                except Exception as e:
+                    print(f"[Qdrant] Error getting clothing: {str(e)}")
+                
+                # Upload image to MinIO
+                print(f"[MinIO] Uploading image from file: {image_url}")
+                try:
+                    minio_url = image_store.upload_image(image_url)
+                    print(f"[MinIO] Image uploaded successfully: {minio_url}")
+                except Exception as e:
+                    print(f"[MinIO] Failed to upload image: {str(e)}")
+                    return
+                
+                # Get CLIP embedding
+                image_vector = embedder.embed_image_from_file(image_url)
+                print(f"[Qdrant] Image embedding completed successfully: {image_vector is not None}")
+                
+                # Get the prompt
+                parsed_prompt = scene_data.get("prompt", "")
+                # Get the original prompt if available
+                original_prompt = scene_data.get("original_content", "")
+                if not original_prompt and "content" in scene_data:
+                    original_prompt = scene_data.get("content", "")
+                
+                print(f"[Qdrant] Embedding prompt: {parsed_prompt[:30]}...")
+                prompt_vector = embedder.embed_prompt(parsed_prompt)
+                print(f"[Qdrant] Prompt embedding completed successfully: {prompt_vector is not None}")
+
+                if image_vector is not None and prompt_vector is not None:
+                    print(f"[Qdrant] Preparing payload for storage")
+                    payload = {
+                        "prompt": parsed_prompt,
+                        "original_prompt": original_prompt,
+                        "url": minio_url,  # Store MinIO URL
+                        "mood": mood,
+                        "appearance": appearance,
+                        "clothing": clothing,
+                        "location": location,
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "model": "runware",
+                        "rating": 0
+                    }
+                    
+                    print(f"[Qdrant] Storing image {image_id} in Qdrant")
+                    result = await qdrant.store_image_embedding(
+                        image_id=image_id,
+                        vector=image_vector.tolist(),
+                        payload=payload
+                    )
+                    print(f"[Qdrant] Storage completed with result: {result}")
+                else:
+                    print(f"[Qdrant] Failed to create embeddings: image_vector={image_vector is not None}, prompt_vector={prompt_vector is not None}")
+            except Exception as e:
+                print(f"[Qdrant] Failed to process image: {e}")
+                import traceback
+                print(f"[Qdrant] Traceback: {traceback.format_exc()}")
         
         async def generate_images(scenes):
             """Generate images for each scene in parallel"""
@@ -539,6 +651,11 @@ def test_image_generator_parser():
                                     original_text = scene.get('original_text', '') if isinstance(scene, dict) else scene
                                     desc = original_text[:30] + "..." if len(original_text) > 30 else original_text
                                     ui.label(desc).classes('text-caption text-grey-5 ellipsis')
+                                    
+                                    # Add frame info if available
+                                    frame = scene.get('frame')
+                                    if frame:
+                                        ui.label(f"[Frame {frame}]").classes('text-caption text-grey-5')
                                 
                                 tasks.append({
                                     'scene': scene,
@@ -566,24 +683,20 @@ def test_image_generator_parser():
                         current_location = memory_system.get_recent_locations(1)
                         current_location_text = current_location[0]["description"] if current_location else None
                         
-                        # Get the image tags from the original context
-                        # This needs to be retrieved from run_test's image_tags
-                        original_image_tags = getattr(run_test, 'image_tags', [])
-                        
                         # Update UI only once after all images are generated
-                        for i, (task, image_url) in enumerate(zip(tasks, image_urls)):
+                        for task, image_url in zip(tasks, image_urls):
                             if image_url:
-                                print(f"Successfully generated image {i+1}: {image_url}")
+                                print(f"Successfully generated image: {image_url}")
                                 task['loading'].visible = False
-                                task['img'].set_source(image_url)
+                                task['img'].set_source(image_url['url'])
                                 task['img'].visible = True
                                 
                                 # Extract UUID from URL path for image ID
                                 try:
-                                    image_uuid = image_url.split('/')[-1].split('.')[0]
+                                    image_uuid = image_url['url'].split('/')[-1].split('.')[0]
                                 except:
                                     from datetime import datetime
-                                    image_uuid = f"img_{int(datetime.now().timestamp())}_{i}"
+                                    image_uuid = f"img_{int(datetime.now().timestamp())}_{len(image_urls)}"
                                 
                                 # Get original and parsed prompts
                                 scene_data = task['scene']
@@ -592,18 +705,27 @@ def test_image_generator_parser():
                                 
                                 # Add to lightbox with ID and prompts
                                 lightbox.add_image(
-                                    thumb_url=image_url,
-                                    orig_url=image_url,
-                                    image_id=image_uuid,
+                                    image_url=image_url['url'],
                                     original_prompt=original_prompt,
                                     parsed_prompt=parsed_prompt
                                 )
                                 
                                 # Set up click handler
-                                task['button'].on('click', lambda url=image_url: lightbox._open(url))
+                                task['button'].on('click', lambda url=image_url['url']: lightbox.show(url))
+                                
+                                # Store in Qdrant if rated
+                                if hasattr(lightbox, 'rating') and lightbox.rating != 0:
+                                    await store_image_in_qdrant(
+                                        scene_data=scene_data,
+                                        image_url=image_url['url'],
+                                        image_id=image_uuid,
+                                        mood=current_mood,
+                                        appearance=current_appearance_text,
+                                        location=current_location_text
+                                    )
                                 
                                 # Show success notification
-                                ui.notify(f"Image {i+1} generated successfully", type='positive')
+                                ui.notify(f"Image generated successfully", type='positive')
                             else:
                                 task['loading'].visible = False
                                 ui.label('Generation failed').classes('text-caption text-negative')
@@ -611,22 +733,6 @@ def test_image_generator_parser():
                     except Exception as e:
                         print(f"Error in parallel generation: {str(e)}")
                         ui.notify(f"Error generating images: {str(e)}", type='negative')
-        
-        async def run_and_notify(i, scene_prompt, image_url, image_uuid, current_mood, current_appearance_text, current_location_text):
-            # Simple notification without attempting Qdrant storage
-            ui.notify(f"Image {i+1} generated successfully", type='positive')
-            print(f"Generated image {i+1}: {image_url}")
-            print(f"Note: Qdrant storage is handled by the main chat pipeline, not the test UI")
-        
-        async def store_image_in_qdrant(scene_prompt, image_url, image_id, mood, appearance, location):
-            """
-            This function is intentionally disabled in the test UI.
-            Qdrant storage is properly handled by ChatPipeline._process_image_for_qdrant during normal operation.
-            """
-            print(f"[TEST UI] Image would be stored in Qdrant during normal operation: {image_id}")
-            print(f"[TEST UI] Image storage is handled by ChatPipeline._process_image_for_qdrant")
-            # Return immediately without attempting storage
-            return
         
         async def run_test(e):
             """Run the test with the current input"""
@@ -649,25 +755,13 @@ def test_image_generator_parser():
                 current_location = memory_system.get_recent_locations(1)
                 current_location_text = current_location[0]["description"] if current_location else None
                 
-                # Use LLM parser instead of regex parser
-                parsed_response = await response_parser._llm_parse(test_input.value, current_appearance=current_appearance_text)
-                
-                if not parsed_response or 'images' not in parsed_response or not parsed_response['images']:
-                    results_container.clear()
-                    with results_container:
-                        ui.label("No image tags found in the input").classes('text-gray-400')
-                    return
-                
-                # Format image contents with context and sequence
+                # Create image context
                 image_context = {
                     "appearance": current_appearance_text,
                     "mood": current_mood,
                     "location": current_location_text,
-                    "images": [{"content": content, "sequence": i+1} for i, content in enumerate(parsed_response['images'])]
+                    "raw_text": test_input.value
                 }
-                
-                # Store image_tags as an attribute to access in generate_images
-                run_test.image_tags = image_context["images"]
                 
                 # Process through image parser with periodic UI updates
                 try:
@@ -681,10 +775,7 @@ def test_image_generator_parser():
                     # Convert to async operation with timeout
                     async def parse_with_timeout():
                         try:
-                            return await image_scene_parser.parse_images(
-                                json.dumps(image_context),
-                                current_appearance=current_appearance_text
-                            )
+                            return await image_scene_parser.parse_images(image_context)
                         except Exception as e:
                             print(f"Error in scene parsing: {str(e)}")
                             return None
@@ -778,3 +869,178 @@ def content() -> None:
         
         with ui.column().classes('gap-1 w-full'):
             ui.button('Test Image Generator & Parser', on_click=test_image_generator_parser).props('color="primary"')
+
+    ui.separator()
+
+    # Qdrant Image Management Section
+    with ui.card().classes('w-full'):
+        ui.markdown("**Qdrant Image Management**")
+        
+        with ui.column().classes('gap-1 w-full'):
+            ui.button('Bulk Update Qdrant Images', on_click=bulk_update_qdrant_images).props('color="primary"')
+
+async def bulk_update_qdrant_images():
+    """Bulk update Qdrant images with new MinIO bucket and additional fields"""
+    try:
+        # Initialize components
+        qdrant = QdrantImageStore()
+        image_store = ImageStore()
+        embedder = Embedder()
+        
+        # Create a dialog to show progress
+        dialog = ui.dialog()
+        with dialog:
+            with ui.card().classes('w-full p-4'):
+                ui.markdown("### Bulk Update Qdrant Images")
+                
+                # Progress display
+                progress_label = ui.label("Preparing update...").classes('text-lg')
+                progress_bar = ui.linear_progress().classes('w-full')
+                status_text = ui.label("").classes('text-sm text-gray-500')
+                
+                # Start button
+                start_button = ui.button('Start Update', on_click=lambda: asyncio.create_task(_run_bulk_update(
+                    qdrant, image_store, embedder, progress_label, progress_bar, status_text, dialog
+                )))
+        
+        dialog.open()
+        
+    except Exception as e:
+        ui.notify(f"Error initializing bulk update: {str(e)}", type='negative')
+        print(f"Error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+
+async def _run_bulk_update(qdrant, image_store, embedder, progress_label, progress_bar, status_text, dialog):
+    """Run the bulk update process"""
+    try:
+        scroll_cursor = None
+        total_processed = 0
+        updated_count = 0
+        
+        while True:
+            # Get points in batches
+            result, scroll_cursor = qdrant.client.scroll(
+                collection_name=qdrant.collection_name,
+                limit=200,
+                with_payload=True,
+                with_vectors=False,
+                offset=scroll_cursor
+            )
+
+            if not result:
+                break
+
+            total_processed += len(result)
+            progress_label.text = f"Processing batch of {len(result)} images..."
+            progress_bar.value = (total_processed / 1000) * 100  # Assuming max 1000 images for progress
+
+            for point in result:
+                try:
+                    point_id = point.id
+                    payload = point.payload
+                    current_url = payload.get('url', '')
+                    
+                    # Skip if already updated (has image_id and source_url)
+                    if 'image_id' in payload and 'source_url' in payload:
+                        continue
+                    
+                    # Download image from current URL
+                    try:
+                        response = requests.get(current_url)
+                        response.raise_for_status()
+                        image_data = response.content
+                    except Exception as e:
+                        status_text.text = f"Failed to download image {point_id}: {str(e)}"
+                        continue
+                    
+                    # Create temporary file
+                    temp_file = f"temp_{point_id}.jpg"
+                    try:
+                        with open(temp_file, 'wb') as f:
+                            f.write(image_data)
+                    except Exception as e:
+                        status_text.text = f"Failed to save image {point_id}: {str(e)}"
+                        continue
+                    
+                    # Upload to MinIO
+                    try:
+                        minio_url = image_store.upload_image(temp_file, f"{point_id}.jpg")
+                    except Exception as e:
+                        status_text.text = f"Failed to upload to MinIO {point_id}: {str(e)}"
+                        # Clean up temp file
+                        try:
+                            os.remove(temp_file)
+                        except:
+                            pass
+                        continue
+                    
+                    # Get CLIP embedding
+                    image_vector = embedder.embed_image_from_file(temp_file)
+                    if image_vector is None:
+                        status_text.text = f"Failed to embed image {point_id}"
+                        # Clean up temp file
+                        try:
+                            os.remove(temp_file)
+                        except:
+                            pass
+                        continue
+                    
+                    # Clean up temp file
+                    try:
+                        os.remove(temp_file)
+                    except:
+                        pass
+                    
+                    # Update payload
+                    new_payload = {
+                        **payload,  # Keep existing fields
+                        "url": minio_url,  # Update with new MinIO URL
+                        "image_id": point_id  # Add UUID field
+                    }
+                    
+                    # Update point in Qdrant
+                    try:
+                        # First update the payload
+                        qdrant.client.set_payload(
+                            collection_name=qdrant.collection_name,
+                            payload=new_payload,
+                            points=[point_id]
+                        )
+                        
+                        # Then update the vector
+                        qdrant.client.update_vectors(
+                            collection_name=qdrant.collection_name,
+                            points=[
+                                {
+                                    "id": point_id,
+                                    "vector": image_vector.tolist()
+                                }
+                            ]
+                        )
+                        
+                        updated_count += 1
+                        status_text.text = f"Updated {updated_count} images so far"
+                    except Exception as e:
+                        status_text.text = f"Failed to update Qdrant {point_id}: {str(e)}"
+                        continue
+                    
+                except Exception as e:
+                    status_text.text = f"Error processing image {point_id}: {str(e)}"
+                    continue
+            
+            # Break if we've reached the end (scroll_cursor is None)
+            if scroll_cursor is None:
+                break
+        
+        # Update complete
+        progress_label.text = "Bulk update completed"
+        progress_bar.value = 100
+        status_text.text = f"Processed {total_processed} images, updated {updated_count}"
+        
+    except Exception as e:
+        progress_label.text = "Error during bulk update"
+        status_text.text = f"Error: {str(e)}"
+        print(f"Error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
