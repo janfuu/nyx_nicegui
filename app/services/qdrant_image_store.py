@@ -13,6 +13,7 @@ state across the application.
 
 from qdrant_client import QdrantClient, models
 from app.utils.config import Config
+from app.core.state_manager import StateManager
 import numpy as np
 import logging
 import asyncio
@@ -39,6 +40,7 @@ class QdrantImageStore:
             host = config.get("qdrant", "host", "localhost")
             port = config.get("qdrant", "port", 6333)
             self._client = QdrantClient(host=host, port=port)
+            self.state_manager = StateManager()
             logger.debug("QdrantImageStore client initialized")
             
     async def check_health(self) -> bool:
@@ -142,4 +144,39 @@ class QdrantImageStore:
             return results
         except Exception as e:
             logger.error(f"Error in similarity search: {str(e)}")
-            return [] 
+            return []
+            
+    async def update_rating(self, image_id: str, rating: int):
+        """
+        Update the rating of an existing image in Qdrant.
+        
+        Args:
+            image_id: Unique identifier for the image
+            rating: New rating value
+            
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        try:
+            # Update the rating
+            payload_update = {
+                "rating": rating,
+                "timestamp_updated": time.strftime("%Y-%m-%dT%H:%M:%S")
+            }
+            
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self._client.set_payload(
+                    collection_name=self._collection_name,
+                    payload=payload_update,
+                    points=[image_id]
+                )
+            )
+            
+            logger.debug(f"Updated rating for image {image_id} to {rating}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating rating for image {image_id}: {str(e)}")
+            return False 
