@@ -19,13 +19,27 @@ class Lightbox:
             'parsed_prompt': parsed_prompt
         })
         
-    def show(self) -> None:
-        """Show the lightbox with the first image"""
-        if not self.images:
-            return
-            
-        self.current_index = 0
-        self._open()
+    def show(self, image_url: str) -> None:
+        """
+        Display a specific image in the lightbox.
+        
+        Args:
+            image_url: URL of the image to display
+        """
+        try:
+            # Find the index of the image in our collection
+            for i, img in enumerate(self.images):
+                if img['url'] == image_url:
+                    self.current_index = i
+                    self._open()
+                    return
+                    
+            # If image not found, show first image
+            if self.images:
+                self.current_index = 0
+                self._open()
+        except Exception as e:
+            print(f"Error showing image in lightbox: {e}")
         
     def _open(self) -> None:
         """Open the lightbox dialog"""

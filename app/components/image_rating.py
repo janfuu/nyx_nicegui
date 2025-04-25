@@ -73,10 +73,10 @@ class ImageRating:
             }
             
             # Store in Qdrant
-            result = await qdrant.store_image_embedding(
+            result = await qdrant.store_image(
                 image_id=image_id,
                 vector=image_vector.tolist(),
-                payload=payload
+                metadata=payload
             )
             
             if result:
